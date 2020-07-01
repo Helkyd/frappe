@@ -35,6 +35,3 @@ def execute():
 
 	# Delete temporary table
 	frappe.db.sql("DROP table `ViewLogTemp`")
-
-	#else:
-	#       frappe.reload_doc('core', 'doctype', 'view_log')
