@@ -36,8 +36,12 @@ def after_install():
 	# update admin password
 	update_password("Administrator", get_admin_password())
 
-	# setup wizard now in frappe
-	frappe.db.set_default('desktop:home_page', 'setup-wizard')
+	if not frappe.conf.skip_setup_wizard:
+		frappe.db.set_default('desktop:home_page', 'setup-wizard')
+
+	# clear test log
+	with open(frappe.get_site_path('.test_log'), 'w') as f:
+		f.write('')
 
 	frappe.db.commit()
 
@@ -53,15 +57,16 @@ def install_basic_docs():
 			'roles': [{'role': 'Guest'}]
 		},
 		{'doctype': "Role", "role_name": "Report Manager"},
+		{'doctype': "Role", "role_name": "Translator"},
 		{'doctype': "Workflow State", "workflow_state_name": "Pending",
 			"icon": "question-sign", "style": ""},
 		{'doctype': "Workflow State", "workflow_state_name": "Approved",
 			"icon": "ok-sign", "style": "Success"},
 		{'doctype': "Workflow State", "workflow_state_name": "Rejected",
 			"icon": "remove", "style": "Danger"},
-		{'doctype': "Workflow Action", "workflow_action_name": "Approve"},
-		{'doctype': "Workflow Action", "workflow_action_name": "Reject"},
-		{'doctype': "Workflow Action", "workflow_action_name": "Review"},
+		{'doctype': "Workflow Action Master", "workflow_action_name": "Approve"},
+		{'doctype': "Workflow Action Master", "workflow_action_name": "Reject"},
+		{'doctype': "Workflow Action Master", "workflow_action_name": "Review"},
 		{'doctype': "Email Domain", "domain_name":"example.com", "email_id": "account@example.com", "password": "pass", "email_server": "imap.example.com","use_imap": 1, "smtp_server": "smtp.example.com"},
 		{'doctype': "Email Account", "domain":"example.com", "email_id": "notifications@example.com", "default_outgoing": 1},
 		{'doctype': "Email Account", "domain":"example.com", "email_id": "replies@example.com", "default_incoming": 1}
@@ -99,20 +104,23 @@ def before_tests():
 	frappe.clear_cache()
 
 	# complete setup if missing
-	from frappe.desk.page.setup_wizard.setup_wizard import setup_complete
 	if not int(frappe.db.get_single_value('System Settings', 'setup_complete') or 0):
-		setup_complete({
-			"language"			:"english",
-			"email"				:"test@erpnext.com",
-			"full_name"			:"Test User",
-			"password"			:"test",
-			"country"			:"United States",
-			"timezone"			:"America/New_York",
-			"currency"			:"USD"
-		})
+		complete_setup_wizard()
 
 	frappe.db.commit()
 	frappe.clear_cache()
+
+def complete_setup_wizard():
+	from frappe.desk.page.setup_wizard.setup_wizard import setup_complete
+	setup_complete({
+		"language"			:"English",
+		"email"				:"test@erpnext.com",
+		"full_name"			:"Test User",
+		"password"			:"test",
+		"country"			:"United States",
+		"timezone"			:"America/New_York",
+		"currency"			:"USD"
+	})
 
 def import_country_and_currency():
 	from frappe.geo.country_info import get_all
@@ -138,6 +146,7 @@ def add_country_and_currency(name, country):
 			"country_name": name,
 			"code": country.code,
 			"date_format": country.date_format or "dd-mm-yyyy",
+			"time_format": country.time_format or "HH:mm:ss",
 			"time_zones": "\n".join(country.timezones or []),
 			"docstatus": 0
 		}).db_insert()

@@ -17,6 +17,9 @@ class WebsiteGenerator(Document):
 
 	def get_website_properties(self, key=None, default=None):
 		out = getattr(self, '_website', None) or getattr(self, 'website', None) or {}
+		if not isinstance(out, dict):
+			# website may be a property too, so ignore
+			out = {}
 		if key:
 			return out.get(key, default)
 		else:
@@ -33,6 +36,9 @@ class WebsiteGenerator(Document):
 		})
 
 	def validate(self):
+		self.set_route()
+
+	def set_route(self):
 		if self.is_website_published() and not self.route:
 			self.route = self.make_route()
 
@@ -65,6 +71,7 @@ class WebsiteGenerator(Document):
 		return title_field
 
 	def clear_cache(self):
+		super(WebsiteGenerator, self).clear_cache()
 		clear_cache(self.route)
 
 	def scrub(self, text):
@@ -74,8 +81,12 @@ class WebsiteGenerator(Document):
 		'''Return breadcrumbs'''
 		pass
 
+	def on_update(self):
+		self.send_indexing_request()
+
 	def on_trash(self):
 		self.clear_cache()
+		self.send_indexing_request('URL_DELETED')
 
 	def is_website_published(self):
 		"""Return true if published in website"""
@@ -109,3 +120,13 @@ class WebsiteGenerator(Document):
 			route.page_title = self.get(self.get_title_field())
 
 		return route
+
+	def send_indexing_request(self, operation_type='URL_UPDATED'):
+		"""Send indexing request on update/trash operation."""
+
+		if frappe.db.get_single_value('Website Settings', 'enable_google_indexing') \
+			and self.is_website_published() and self.meta.allow_guest_to_view:
+
+			url = frappe.utils.get_url(self.route)
+			frappe.enqueue('frappe.website.doctype.website_settings.google_indexing.publish_site', \
+				url=url, operation_type=operation_type)

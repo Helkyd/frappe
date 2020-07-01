@@ -1,7 +1,7 @@
 // Copyright (c) 2015, Frappe Technologies Pvt. Ltd. and Contributors
 // MIT License. See license.txt
 
-frappe.provide("frappe.ui.form");
+
 
 frappe.ui.form.save = function (frm, action, callback, btn) {
 	$(btn).prop("disabled", true);
@@ -18,27 +18,69 @@ frappe.ui.form.save = function (frm, action, callback, btn) {
 	var freeze_message = working_label ? __(working_label) : "";
 
 	var save = function () {
-		check_name(function () {
-			$(frm.wrapper).addClass('validated-form');
-			if (check_mandatory()) {
-				_call({
-					method: "frappe.desk.form.save.savedocs",
-					args: { doc: frm.doc, action: action },
-					callback: function (r) {
-						$(document).trigger("save", [frm.doc]);
-						callback(r);
-					},
-					error: function (r) {
-						callback(r);
-					},
-					btn: btn,
-					freeze_message: freeze_message
-				});
-			} else {
-				$(btn).prop("disabled", false);
+		remove_empty_rows();
+
+		$(frm.wrapper).addClass('validated-form');
+		if ((action !== 'Save' || frm.is_dirty()) && check_mandatory()) {
+			_call({
+				method: "frappe.desk.form.save.savedocs",
+				args: { doc: frm.doc, action: action },
+				callback: function (r) {
+					$(document).trigger("save", [frm.doc]);
+					callback(r);
+				},
+				error: function (r) {
+					callback(r);
+				},
+				btn: btn,
+				freeze_message: freeze_message
+			});
+		} else {
+			!frm.is_dirty() && frappe.show_alert({message: __("No changes in document"), indicator: "blue"});
+			$(btn).prop("disabled", false);
+		}
+	};
+
+	var remove_empty_rows = function() {
+		/*
+			This function removes empty rows. Note that in this function, a row is considered
+			empty if the fields with `in_list_view: 1` are undefined or falsy because that's
+			what users also consider to be an empty row
+		*/
+		const docs = frappe.model.get_all_docs(frm.doc);
+
+		// we should only worry about table data
+		const tables = docs.filter(d => {
+			return frappe.model.is_table(d.doctype);
+		});
+
+		let modified_table_fields = [];
+
+		tables.map(doc => {
+			const cells = frappe.meta.docfield_list[doc.doctype] || [];
+
+			const in_list_view_cells = cells.filter((df) => {
+				return cint(df.in_list_view) === 1;
+			});
+
+			const is_empty_row = function(cells) {
+				for (let i = 0; i < cells.length; i++) {
+					if (locals[doc.doctype][doc.name][cells[i].fieldname]) {
+						return false;
+					}
+				}
+				return true;
+			};
+
+			if (is_empty_row(in_list_view_cells)) {
+				frappe.model.clear_doc(doc.doctype, doc.name);
+				modified_table_fields.push(doc.parentfield);
 			}
 		});
 
+		modified_table_fields.forEach(field => {
+			frm.refresh_field(field);
+		});
 	};
 
 	var cancel = function () {
@@ -69,36 +111,6 @@ frappe.ui.form.save = function (frm, action, callback, btn) {
 		});
 	};
 
-	var check_name = function (callback) {
-		var doc = frm.doc;
-		var meta = locals.DocType[doc.doctype];
-		if (doc.__islocal && (meta && meta.autoname
-			&& meta.autoname.toLowerCase() == 'prompt')) {
-			var d = frappe.prompt(__("Name"), function (values) {
-				var newname = values.value;
-				if (newname) {
-					doc.__newname = strip(newname);
-				} else {
-					frappe.msgprint(__("Name is required"));
-					throw "name required";
-				}
-
-				callback();
-
-			}, __('Enter the name of the new {0}', [doc.doctype]), __("Create"));
-
-			if (doc.__newname) {
-				d.set_value("value", doc.__newname);
-			}
-
-			d.onhide = function () {
-				$(btn).prop("disabled", false);
-			}
-		} else {
-			callback();
-		}
-	};
-
 	var check_mandatory = function () {
 		var me = this;
 		var has_errors = false;
@@ -122,9 +134,8 @@ frappe.ui.form.save = function (frm, action, callback, btn) {
 					if (df.reqd && !frappe.model.has_value(doc.doctype, doc.name, df.fieldname)) {
 						has_errors = true;
 						error_fields[error_fields.length] = __(df.label);
-
 						// scroll to field
-						if (!me.scroll_set) {
+						if (!frm.scroll_set) {
 							scroll_to(doc.parentfield || df.fieldname);
 						}
 
@@ -136,13 +147,18 @@ frappe.ui.form.save = function (frm, action, callback, btn) {
 
 				}
 			});
+
+			if (frm.is_new() && frm.meta.autoname === 'Prompt' && !frm.doc.__newname) {
+				error_fields = [__('Name'), ...error_fields];
+			}
+
 			if (error_fields.length) {
-				if (doc.parenttype) {
+				let meta = frappe.get_meta(doc.doctype);
+				if (meta.istable) {
 					var message = __('Mandatory fields required in table {0}, Row {1}',
 						[__(frappe.meta.docfield_map[doc.parenttype][doc.parentfield].label).bold(), doc.idx]);
 				} else {
 					var message = __('Mandatory fields required in {0}', [__(doc.doctype)]);
-
 				}
 				message = message + '<br><br><ul><li>' + error_fields.join('</li><li>') + "</ul>";
 				frappe.msgprint({
@@ -179,12 +195,15 @@ frappe.ui.form.save = function (frm, action, callback, btn) {
 			throw "saving";
 		}
 
-		frappe.ui.form.remove_old_form_route();
+		// ensure we remove new docs routes ONLY
+		if ( frm.is_new() ) {
+			frappe.ui.form.remove_old_form_route();
+		}
 		frappe.ui.form.is_saving = true;
 
 		return frappe.call({
 			freeze: true,
-			freeze_message: opts.freeze_message,
+			// freeze_message: opts.freeze_message,
 			method: opts.method,
 			args: opts.args,
 			btn: opts.btn,
@@ -195,6 +214,11 @@ frappe.ui.form.save = function (frm, action, callback, btn) {
 			always: function (r) {
 				$(btn).prop("disabled", false);
 				frappe.ui.form.is_saving = false;
+
+				if (!r.exc) {
+					frappe.show_alert({message: __('Saved'), indicator: 'green'});
+				}
+
 				if (r) {
 					var doc = r.docs && r.docs[0];
 					if (doc) {
@@ -213,19 +237,25 @@ frappe.ui.form.save = function (frm, action, callback, btn) {
 }
 
 frappe.ui.form.remove_old_form_route = () => {
-	let index = -1;
-	let current_route = frappe.get_route();
-	frappe.route_history.map((arr, i) => {
-		if (arr.join("/") === current_route.join("/")) {
-			index = i;
-		}
-	});
-	frappe.route_history.splice(index, 1);
+	let current_route = frappe.get_route().join("/");
+	frappe.route_history = frappe.route_history
+		.filter((route) => route.join("/") !== current_route);
 }
 
 frappe.ui.form.update_calling_link = (newdoc) => {
-	if (frappe._from_link && newdoc.doctype === frappe._from_link.df.options) {
-		var doc = frappe.get_doc(frappe._from_link.doctype, frappe._from_link.docname);
+	if (!frappe._from_link) return;
+	var doc = frappe.get_doc(frappe._from_link.doctype, frappe._from_link.docname);
+
+	let is_valid_doctype = () => {
+		if (frappe._from_link.df.fieldtype==='Link') {
+			return newdoc.doctype === frappe._from_link.df.options;
+		} else {
+			// dynamic link, type is dynamic
+			return newdoc.doctype === doc[frappe._from_link.df.options];
+		}
+	};
+
+	if (is_valid_doctype()) {
 		// set value
 		if (doc && doc.parentfield) {
 			//update values for child table

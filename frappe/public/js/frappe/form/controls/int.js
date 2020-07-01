@@ -19,7 +19,21 @@ frappe.ui.form.ControlInt = frappe.ui.form.ControlData.extend({
 				return false;
 			});
 	},
+	eval_expression: function(value) {
+		if (typeof value === 'string') {
+			if (value.match(/^[0-9+\-/* ]+$/)) {
+				// If it is a string containing operators
+				try {
+					return eval(value);
+				} catch (e) {
+					// bad expression
+					return value;
+				}
+			}
+		}
+		return value;
+	},
 	parse: function(value) {
-		return cint(value, null);
+		return cint(this.eval_expression(value), null);
 	}
 });

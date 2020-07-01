@@ -1,4 +1,4 @@
-// Copyright (c) 2015, Frappe Technologies Pvt. Ltd. and Contributors
+// Copyright (c) 2018, Frappe Technologies Pvt. Ltd. and Contributors
 // MIT License. See license.txt
 
 frappe.last_edited_communication = {};
@@ -11,13 +11,36 @@ frappe.views.CommunicationComposer = Class.extend({
 	},
 	make: function() {
 		var me = this;
+
 		this.dialog = new frappe.ui.Dialog({
 			title: (this.title || this.subject || __("New Email")),
 			no_submit_on_enter: true,
 			fields: this.get_fields(),
 			primary_action_label: __("Send"),
 			primary_action: function() {
+				me.delete_saved_draft();
 				me.send_action();
+			},
+			minimizable: true
+		});
+
+		['recipients', 'cc', 'bcc'].forEach(field => {
+			this.dialog.fields_dict[field].get_data = function() {
+				const data = me.dialog.fields_dict[field].get_value();
+				const txt = data.match(/[^,\s*]*$/)[0] || '';
+				let options = [];
+
+				frappe.call({
+					method: "frappe.email.get_contact_list",
+					args: {
+						txt: txt,
+					},
+					callback: (r) => {
+						options = r.message;
+						me.dialog.fields_dict[field].set_data(options);
+					}
+				});
+				return options;
 			}
 		});
 
@@ -43,35 +66,38 @@ frappe.views.CommunicationComposer = Class.extend({
 		})
 		this.prepare();
 		this.dialog.show();
+
+		if (this.frm) {
+			$(document).trigger('form-typing', [this.frm]);
+		}
 	},
 
 	get_fields: function() {
+		let contactList = [];
 		var fields= [
-			{label:__("To"), fieldtype:"Data", reqd: 0, fieldname:"recipients",length:524288},
-			{fieldtype: "Section Break", collapsible: 1, label: __("CC & Standard Reply")},
-			{label:__("CC"), fieldtype:"Data", fieldname:"cc", length:524288},
-			{label:__("Standard Reply"), fieldtype:"Link", options:"Standard Reply",
-				fieldname:"standard_reply"},
+			{label:__("To"), fieldtype:"MultiSelect", reqd: 0, fieldname:"recipients",options:contactList},
+			{fieldtype: "Section Break", collapsible: 1, label: __("CC, BCC & Email Template")},
+			{label:__("CC"), fieldtype:"MultiSelect", fieldname:"cc",options:contactList},
+			{label:__("BCC"), fieldtype:"MultiSelect", fieldname:"bcc",options:contactList},
+			{label:__("Email Template"), fieldtype:"Link", options:"Email Template",
+				fieldname:"email_template"},
 			{fieldtype: "Section Break"},
 			{label:__("Subject"), fieldtype:"Data", reqd: 1,
 				fieldname:"subject", length:524288},
 			{fieldtype: "Section Break"},
-			{label:__("Message"), fieldtype:"Text Editor", reqd: 1,
-				fieldname:"content"},
+			{
+				label:__("Message"),
+				fieldtype:"Text Editor", reqd: 1,
+				fieldname:"content",
+				onchange: frappe.utils.debounce(this.save_as_draft.bind(this), 300)
+			},
+
 			{fieldtype: "Section Break"},
 			{fieldtype: "Column Break"},
-			{label:__("Send As Email"), fieldtype:"Check",
-				fieldname:"send_email"},
 			{label:__("Send me a copy"), fieldtype:"Check",
 				fieldname:"send_me_a_copy", 'default': frappe.boot.user.send_me_a_copy},
 			{label:__("Send Read Receipt"), fieldtype:"Check",
 				fieldname:"send_read_receipt"},
-			{label:__("Communication Medium"), fieldtype:"Select",
-				options: ["Phone", "Chat", "Email", "SMS", "Visit", "Other"],
-				fieldname:"communication_medium"},
-			{label:__("Sent or Received"), fieldtype:"Select",
-				options: ["Received", "Sent"],
-				fieldname:"sent_or_received"},
 			{label:__("Attach Document Print"), fieldtype:"Check",
 				fieldname:"attach_document_print"},
 			{label:__("Select Print Format"), fieldtype:"Select",
@@ -99,21 +125,22 @@ frappe.views.CommunicationComposer = Class.extend({
 	},
 	prepare: function() {
 		this.setup_subject_and_recipients();
-		this.setup_print_language()
+		this.setup_print_language();
 		this.setup_print();
 		this.setup_attach();
 		this.setup_email();
-		this.setup_awesomplete();
 		this.setup_last_edited_communication();
-		this.setup_standard_reply();
+		this.setup_email_template();
 
-		this.dialog.fields_dict.recipients.set_value(this.recipients || '');
-		this.dialog.fields_dict.cc.set_value(this.cc || '');
+		this.dialog.set_value("recipients", this.recipients || '');
+		this.dialog.set_value("cc", this.cc || '');
+		this.dialog.set_value("bcc", this.bcc || '');
 
 		if(this.dialog.fields_dict.sender) {
 			this.dialog.fields_dict.sender.set_value(this.sender || '');
 		}
 		this.dialog.fields_dict.subject.set_value(this.subject || '');
+
 		this.setup_earlier_reply();
 	},
 
@@ -123,6 +150,7 @@ frappe.views.CommunicationComposer = Class.extend({
 		if(!this.forward && !this.recipients && this.last_email) {
 			this.recipients = this.last_email.sender;
 			this.cc = this.last_email.cc;
+			this.bcc = this.last_email.bcc;
 		}
 
 		if(!this.forward && !this.recipients) {
@@ -149,20 +177,29 @@ frappe.views.CommunicationComposer = Class.extend({
 				if (this.frm.subject_field && this.frm.doc[this.frm.subject_field]) {
 					this.subject = __("Re: {0}", [this.frm.doc[this.frm.subject_field]]);
 				} else {
-					this.subject = __(this.frm.doctype) + ': ' + this.frm[this.frm.meta.title_field || name];
+					let title = this.frm.doc.name;
+					if(this.frm.meta.title_field && this.frm.doc[this.frm.meta.title_field]
+						&& this.frm.doc[this.frm.meta.title_field] != this.frm.doc.name) {
+						title = `${this.frm.doc[this.frm.meta.title_field]} (#${this.frm.doc.name})`;
+					}
+					this.subject = `${__(this.frm.doctype)}: ${title}`;
 				}
 			}
 		}
+
+		if (this.frm && !this.recipients) {
+			this.recipients = this.frm.doc[this.frm.email_field];
+		}
 	},
 
-	setup_standard_reply: function() {
+	setup_email_template: function() {
 		var me = this;
 
-		this.dialog.fields_dict["standard_reply"].df.onchange = () => {
-			var standard_reply = me.dialog.fields_dict.standard_reply.get_value();
+		this.dialog.fields_dict["email_template"].df.onchange = () => {
+			var email_template = me.dialog.fields_dict.email_template.get_value();
 
 			var prepend_reply = function(reply) {
-				if(me.reply_added===standard_reply) {
+				if(me.reply_added===email_template) {
 					return;
 				}
 				var content_field = me.dialog.fields_dict.content;
@@ -179,22 +216,22 @@ frappe.views.CommunicationComposer = Class.extend({
 				}
 
 				content_field.set_value(content.join(''));
-				if(subject === "") {
-					subject_field.set_value(reply.subject);
-				}
 
-				me.reply_added = standard_reply;
+				subject_field.set_value(reply.subject);
+
+				me.reply_added = email_template;
 			}
 
 			frappe.call({
-				method: 'frappe.email.doctype.standard_reply.standard_reply.get_standard_reply',
+				method: 'frappe.email.doctype.email_template.email_template.get_email_template',
 				args: {
-					template_name: standard_reply,
-					doc: me.frm.doc
+					template_name: email_template,
+					doc: me.frm.doc,
+					_lang: me.dialog.get_value("language_sel")
 				},
 				callback: function(r) {
 					prepend_reply(r.message);
-				}
+				},
 			});
 		}
 	},
@@ -224,9 +261,15 @@ frappe.views.CommunicationComposer = Class.extend({
 			$.extend(last_edited_communication, {
 				sender: me.dialog.get_value("sender"),
 				recipients: me.dialog.get_value("recipients"),
+				cc: me.dialog.get_value("cc"),
+				bcc: me.dialog.get_value("bcc"),
 				subject: me.dialog.get_value("subject"),
 				content: me.dialog.get_value("content"),
 			});
+
+			if (me.frm) {
+				$(document).trigger("form-stopped-typing", [me.frm]);
+			}
 		}
 
 		this.dialog.on_page_show = function() {
@@ -236,6 +279,8 @@ frappe.views.CommunicationComposer = Class.extend({
 					me.dialog.set_value("sender", last_edited_communication.sender || "");
 					me.dialog.set_value("subject", last_edited_communication.subject || "");
 					me.dialog.set_value("recipients", last_edited_communication.recipients || "");
+					me.dialog.set_value("cc", last_edited_communication.cc || "");
+					me.dialog.set_value("bcc", last_edited_communication.bcc || "");
 					me.dialog.set_value("content", last_edited_communication.content || "");
 				}
 			}
@@ -256,6 +301,22 @@ frappe.views.CommunicationComposer = Class.extend({
 		return frappe.last_edited_communication[this.doc][this.key];
 	},
 
+	selected_format: function() {
+		return this.dialog.fields_dict.select_print_format.input.value || (this.frm && this.frm.meta.default_print_format) || "Standard";
+	},
+
+	get_print_format: function(format) {
+		if (!format) {
+			format = this.selected_format();
+		}
+
+		if (locals["Print Format"] && locals["Print Format"][format]) {
+			return locals["Print Format"][format];
+		} else {
+			return {};
+		}
+	},
+
 	setup_print_language: function() {
 		var me = this;
 		var doc = this.doc || cur_frm.doc;
@@ -264,16 +325,28 @@ frappe.views.CommunicationComposer = Class.extend({
 		//Load default print language from doctype
 		this.lang_code = doc.language
 
+		if (this.get_print_format().default_print_language) {
+			var default_print_language_code = this.get_print_format().default_print_language;
+			me.lang_code = default_print_language_code;
+		} else {
+			var default_print_language_code = null;
+		}
+
 		//On selection of language retrieve language code
-		$(fields.language_sel.input).click(function(){
+		$(fields.language_sel.input).change(function(){
 			me.lang_code = this.value
 		})
 
 		// Load all languages in the select field language_sel
 		$(fields.language_sel.input)
 			.empty()
-			.add_options(frappe.get_languages())
-			.val(doc.language)
+			.add_options(frappe.get_languages());
+
+		if (default_print_language_code) {
+			$(fields.language_sel.input).val(default_print_language_code);
+		} else {
+			$(fields.language_sel.input).val(doc.language);
+		}
 	},
 
 	setup_print: function() {
@@ -302,33 +375,28 @@ frappe.views.CommunicationComposer = Class.extend({
 		var fields = this.dialog.fields_dict;
 		var attach = $(fields.select_attachments.wrapper);
 
-		var me = this
-		if (!me.attachments){
-			me.attachments = []
+		if (!this.attachments) {
+			this.attachments = [];
 		}
 
-		var args = {
-			args: {
-				from_form: 1,
-				folder:"Home/Attachments"
-			},
-			callback: function(attachment, r) { me.attachments.push(attachment); },
-			max_width: null,
-			max_height: null
+		let args = {
+			folder: 'Home/Attachments',
+			on_success: attachment => {
+				this.attachments.push(attachment);
+				this.render_attach();
+			}
 		};
 
-		if(me.frm) {
+		if(this.frm) {
 			args = {
-				args: (me.frm.attachments.get_args
-					? me.frm.attachments.get_args()
-					: { from_form: 1,folder:"Home/Attachments" }),
-				callback: function (attachment, r) {
-					me.frm.attachments.attachment_uploaded(attachment, r)
-				},
-				max_width: me.frm.cscript ? me.frm.cscript.attachment_max_width : null,
-				max_height: me.frm.cscript ? me.frm.cscript.attachment_max_height : null
+				doctype: this.frm.doctype,
+				docname: this.frm.docname,
+				folder: 'Home/Attachments',
+				on_success: attachment => {
+					this.frm.attachments.attachment_uploaded(attachment);
+					this.render_attach();
+				}
 			}
-
 		}
 
 		$("<h6 class='text-muted add-attachment' style='margin-top: 12px; cursor:pointer;'>"
@@ -336,21 +404,23 @@ frappe.views.CommunicationComposer = Class.extend({
 			<p class='add-more-attachments'>\
 			<a class='text-muted small'><i class='octicon octicon-plus' style='font-size: 12px'></i> "
 			+__("Add Attachment")+"</a></p>").appendTo(attach.empty())
-		attach.find(".add-more-attachments a").on('click',this,function() {
-			me.upload = frappe.ui.get_upload_dialog(args);
-		})
-		me.render_attach()
-
+		attach
+			.find(".add-more-attachments a")
+			.on('click',() => new frappe.ui.FileUploader(args));
+		this.render_attach();
 	},
 	render_attach:function(){
 		var fields = this.dialog.fields_dict;
 		var attach = $(fields.select_attachments.wrapper).find(".attach-list").empty();
 
-		if (cur_frm){
-			var files = cur_frm.get_files();
-		}else {
-			var files = this.attachments
+		var files = [];
+		if (this.attachments && this.attachments.length) {
+			files = files.concat(this.attachments);
 		}
+		if (cur_frm) {
+			files = files.concat(cur_frm.get_files());
+		}
+
 		if(files.length) {
 			$.each(files, function(i, f) {
 				if (!f.file_name) return;
@@ -365,6 +435,21 @@ frappe.views.CommunicationComposer = Class.extend({
 					.appendTo(attach)
 			});
 		}
+		this.select_attachments();
+	},
+	select_attachments:function(){
+		let me = this;
+		if(me.dialog.display) {
+			let wrapper = $(me.dialog.fields_dict.select_attachments.wrapper);
+
+			let unchecked_items = wrapper.find('[data-file-name]:not(:checked)').map(function() {
+				return $(this).attr("data-file-name");
+			});
+
+			$.each(unchecked_items, function(i, filename) {
+				wrapper.find('[data-file-name="'+ filename +'"]').prop("checked", true);
+			});
+		}
 	},
 	setup_email: function() {
 		// email
@@ -376,26 +461,12 @@ frappe.views.CommunicationComposer = Class.extend({
 			$(fields.select_print_format.wrapper).toggle(true);
 		}
 
-		$(fields.send_email.input).prop("checked", true);
-
 		$(fields.send_me_a_copy.input).on('click', () => {
 			// update send me a copy (make it sticky)
 			let val = fields.send_me_a_copy.get_value();
 			frappe.db.set_value('User', frappe.session.user, 'send_me_a_copy', val);
 			frappe.boot.user.send_me_a_copy = val;
 		});
-
-		// toggle print format
-		$(fields.send_email.input).click(function() {
-			$(fields.communication_medium.wrapper).toggle(!!!$(this).prop("checked"));
-			$(fields.sent_or_received.wrapper).toggle(!!!$(this).prop("checked"));
-			$(fields.send_read_receipt.wrapper).toggle($(this).prop("checked"));
-			me.dialog.get_primary_btn().html($(this).prop("checked") ? "Send" : "Add Communication");
-		});
-
-		// select print format
-		$(fields.communication_medium.wrapper).toggle(false);
-		$(fields.sent_or_received.wrapper).toggle(false);
 
 	},
 
@@ -407,24 +478,13 @@ frappe.views.CommunicationComposer = Class.extend({
 		if(!form_values) return;
 
 		var selected_attachments =
-			$.map($(me.dialog.wrapper)
-			.find("[data-file-name]:checked"), function (element) {
+			$.map($(me.dialog.wrapper).find("[data-file-name]:checked"), function (element) {
 				return $(element).attr("data-file-name");
 			});
 
 
 		if(form_values.attach_document_print) {
-			if (cur_frm.print_preview.is_old_style(form_values.select_print_format || "")) {
-				cur_frm.print_preview.with_old_style({
-					format: form_values.select_print_format,
-					callback: function(print_html) {
-						me.send_email(btn, form_values, selected_attachments, print_html);
-					}
-				});
-			} else {
-				me.send_email(btn, form_values, selected_attachments, null, form_values.select_print_format || "");
-			}
-
+			me.send_email(btn, form_values, selected_attachments, null, form_values.select_print_format || "");
 		} else {
 			me.send_email(btn, form_values, selected_attachments);
 		}
@@ -441,6 +501,7 @@ frappe.views.CommunicationComposer = Class.extend({
 				// concat in cc
 				if ( form_values[df.fieldname] ) {
 					form_values.cc = ( form_values.cc ? (form_values.cc + ", ") : "" ) + df.fieldname;
+					form_values.bcc = ( form_values.bcc ? (form_values.bcc + ", ") : "" ) + df.fieldname;
 				}
 
 				delete form_values[df.fieldname];
@@ -450,11 +511,36 @@ frappe.views.CommunicationComposer = Class.extend({
 		return form_values;
 	},
 
+	save_as_draft: function() {
+		if (this.dialog && this.frm) {
+			try {
+				let message = this.dialog.get_value('content');
+				message = message.split(frappe.separator_element)[0];
+				localStorage.setItem(this.frm.doctype + this.frm.docname, message);
+			} catch (e) {
+				// silently fail
+				console.log(e);
+				console.warn('[Communication] localStorage is full. Cannot save message as draft');
+			}
+		}
+	},
+
+	delete_saved_draft() {
+		if (this.dialog) {
+			try {
+				localStorage.removeItem(this.frm.doctype + this.frm.docname);
+			} catch (e) {
+				console.log(e);
+				console.warn('[Communication] Cannot delete localStorage item'); // eslint-disable-line
+			}
+		}
+	},
+
 	send_email: function(btn, form_values, selected_attachments, print_html, print_format) {
 		var me = this;
 		me.dialog.hide();
 
-		if((form_values.send_email || form_values.communication_medium === "Email") && !form_values.recipients) {
+		if(!form_values.recipients) {
 			frappe.msgprint(__("Enter Email Recipient(s)"));
 			return;
 		}
@@ -464,43 +550,41 @@ frappe.views.CommunicationComposer = Class.extend({
 			print_format = null;
 		}
 
-		if(form_values.send_email) {
-			if(cur_frm && !frappe.model.can_email(me.doc.doctype, cur_frm)) {
-				frappe.msgprint(__("You are not allowed to send emails related to this document"));
-				return;
-			}
 
-			form_values.communication_medium = "Email";
-			form_values.sent_or_received = "Sent";
+		if(cur_frm && !frappe.model.can_email(me.doc.doctype, cur_frm)) {
+			frappe.msgprint(__("You are not allowed to send emails related to this document"));
+			return;
 		}
+
 
 		return frappe.call({
 			method:"frappe.core.doctype.communication.email.make",
 			args: {
 				recipients: form_values.recipients,
 				cc: form_values.cc,
+				bcc: form_values.bcc,
 				subject: form_values.subject,
 				content: form_values.content,
 				doctype: me.doc.doctype,
 				name: me.doc.name,
-				send_email: form_values.send_email,
+				send_email: 1,
 				print_html: print_html,
 				send_me_a_copy: form_values.send_me_a_copy,
 				print_format: print_format,
-				communication_medium: form_values.communication_medium,
-				sent_or_received: form_values.sent_or_received,
 				sender: form_values.sender,
 				sender_full_name: form_values.sender?frappe.user.full_name():undefined,
+				email_template: form_values.email_template,
 				attachments: selected_attachments,
 				_lang : me.lang_code,
-				read_receipt:form_values.send_read_receipt
+				read_receipt:form_values.send_read_receipt,
+				print_letterhead: me.is_print_letterhead_checked(),
 			},
 			btn: btn,
 			callback: function(r) {
 				if(!r.exc) {
 					frappe.utils.play_sound("email");
 
-					if(form_values.send_email && r.message["emails_not_sent_to"]) {
+					if(r.message["emails_not_sent_to"]) {
 						frappe.msgprint(__("Email not sent to {0} (unsubscribed / disabled)",
 							[ frappe.utils.escape_html(r.message["emails_not_sent_to"]) ]) );
 					}
@@ -539,14 +623,18 @@ frappe.views.CommunicationComposer = Class.extend({
 		});
 	},
 
-	setup_earlier_reply: function() {
-		var fields = this.dialog.fields_dict,
-			signature = frappe.boot.user.email_signature || "",
-			last_email = this.last_email;
-
-		if(!last_email) {
-			last_email = this.frm && this.frm.timeline.get_last_email(true);
+	is_print_letterhead_checked: function() {
+		if (this.frm && $(this.frm.wrapper).find('.form-print-wrapper').is(':visible')){
+			return $(this.frm.wrapper).find('.print-letterhead').prop('checked') ? 1 : 0;
+		} else {
+			return (frappe.model.get_doc(":Print Settings", "Print Settings") ||
+				{ with_letterhead: 1 }).with_letterhead ? 1 : 0;
 		}
+	},
+
+	setup_earlier_reply: function() {
+		let fields = this.dialog.fields_dict;
+		let signature = frappe.boot.user.email_signature || "";
 
 		if(!frappe.utils.is_html(signature)) {
 			signature = signature.replace(/\n/g, "<br>");
@@ -554,6 +642,12 @@ frappe.views.CommunicationComposer = Class.extend({
 
 		if(this.txt) {
 			this.message = this.txt + (this.message ? ("<br><br>" + this.message) : "");
+		} else {
+			// saved draft in localStorage
+			const { doctype, docname } = this.frm || {};
+			if (doctype && docname) {
+				this.message = localStorage.getItem(doctype + docname) || '';
+			}
 		}
 
 		if(this.real_name) {
@@ -561,78 +655,65 @@ frappe.views.CommunicationComposer = Class.extend({
 				+ this.real_name + ",</p><!-- salutation-ends --><br>" + (this.message || "");
 		}
 
-		var reply = (this.message || "")
-			+ (signature ? ("<br>" + signature) : "");
-		var content = '';
+		if(this.message && signature && this.message.includes(signature)) {
+			signature = "";
+		}
 
-		if(last_email) {
-			var last_email_content = last_email.original_comment || last_email.content;
+		let reply = (this.message || "") + (signature ? ("<br>" + signature) : "");
+		let content = '';
 
-			last_email_content = last_email_content
-				.replace(/&lt;meta[\s\S]*meta&gt;/g, '') // remove <meta> tags
-				.replace(/&lt;style[\s\S]*&lt;\/style&gt;/g, ''); // // remove <style> tags
+		if (this.is_a_reply === 'undefined') {
+			this.is_a_reply = true;
+		}
 
-			content = '<div><br></div>'
-				+ reply
-				+ "<br><!-- original-reply --><br>"
-				+ '<blockquote>' +
-					'<p>' + __("On {0}, {1} wrote:",
-					[frappe.datetime.global_date_format(last_email.communication_date) , last_email.sender]) + '</p>' +
-					last_email_content +
-				'<blockquote>';
+		if (this.is_a_reply) {
+			let last_email = this.last_email;
+
+			if (!last_email) {
+				last_email = this.frm && this.frm.timeline.get_last_email(true);
+			}
+
+			if (!last_email) return;
+
+			let last_email_content = last_email.original_comment || last_email.content;
+
+			// convert the email context to text as we are enclosing
+			// this inside <blockquote>
+			last_email_content = this.html2text(last_email_content).replace(/\n/g, '<br>');
+
+			// clip last email for a maximum of 20k characters
+			// to prevent the email content from getting too large
+			if (last_email_content.length > 20 * 1024) {
+				last_email_content += '<div>' + __('Message clipped') + '</div>' + last_email_content;
+				last_email_content = last_email_content.slice(0, 20 * 1024);
+			}
+
+			let communication_date = last_email.communication_date || last_email.creation;
+			content = `
+				<div><br></div>
+				${reply}
+				${frappe.separator_element}
+				<p>${__("On {0}, {1} wrote:", [frappe.datetime.global_date_format(communication_date) , last_email.sender])}</p>
+				<blockquote>
+				${last_email_content}
+				</blockquote>
+			`;
 		} else {
 			content = "<div><br></div>" + reply;
 		}
 		fields.content.set_value(content);
 	},
-	setup_awesomplete: function() {
-		var me = this;
-		[
-			this.dialog.fields_dict.recipients.input,
-			this.dialog.fields_dict.cc.input
-		].map(function(input) {
-			me.setup_awesomplete_for_input(input);
-		});
-	},
-	setup_awesomplete_for_input: function(input) {
-		function split(val) {
-			return val.split( /,\s*/ );
-		}
-		function extractLast(term) {
-			return split(term).pop();
-		}
 
-		var awesomplete = new Awesomplete(input, {
-			minChars: 0,
-			maxItems: 99,
-			autoFirst: true,
-			list: [],
-			item: function(item, input) {
-				return $('<li>').text(item.value).get(0);
-			},
-			filter: function(text, input) { return true },
-			replace: function(text) {
-				var before = this.input.value.match(/^.+,\s*|/)[0];
-				this.input.value = before + text + ", ";
-			}
-		});
-		var delay_timer;
-		var $input = $(input);
-		$input.on("input", function(e) {
-			clearTimeout(delay_timer);
-			delay_timer = setTimeout(function() {
-				var term = e.target.value;
-				frappe.call({
-					method:'frappe.email.get_contact_list',
-					args: {
-						'txt': extractLast(term) || '%'
-					},
-					quiet: true,
-					callback: function(r) {
-						awesomplete.list = r.message || [];
-					}
-				});
-			},250);
-		});
+	html2text: function(html) {
+		// convert HTML to text and try and preserve whitespace
+		var d = document.createElement( 'div' );
+		d.innerHTML = html.replace(/<\/div>/g, '<br></div>')  // replace end of blocks
+			.replace(/<\/p>/g, '<br></p>') // replace end of paragraphs
+			.replace(/<br>/g, '\n');
+		let text = d.textContent;
+
+		// replace multiple empty lines with just one
+		return text.replace(/\n{3,}/g, '\n\n');
 	}
 });
+

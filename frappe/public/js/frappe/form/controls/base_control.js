@@ -1,21 +1,10 @@
-frappe.ui.form.make_control = function (opts) {
-	var control_class_name = "Control" + opts.df.fieldtype.replace(/ /g, "");
-	if(frappe.ui.form[control_class_name]) {
-		return new frappe.ui.form[control_class_name](opts);
-	} else {
-		// eslint-disable-next-line
-		console.log("Invalid Control Name: " + opts.df.fieldtype);
-	}
-};
-
 frappe.ui.form.Control = Class.extend({
 	init: function(opts) {
 		$.extend(this, opts);
 		this.make();
 
 		// if developer_mode=1, show fieldname as tooltip
-		if(frappe.boot.user && frappe.boot.user.name==="Administrator" &&
-			frappe.boot.developer_mode===1 && this.$wrapper) {
+		if(frappe.boot.user && frappe.boot.developer_mode===1 && this.$wrapper) {
 			this.$wrapper.attr("title", __(this.df.fieldname));
 		}
 
@@ -47,7 +36,11 @@ frappe.ui.form.Control = Class.extend({
 	// returns "Read", "Write" or "None"
 	// as strings based on permissions
 	get_status: function(explain) {
-		if(!this.doctype && !this.docname) {
+		if (this.df.get_status) {
+			return this.df.get_status(this);
+		}
+
+		if((!this.doctype && !this.docname) || this.df.parenttype === 'Web Form') {
 			// like in case of a dialog box
 			if (cint(this.df.hidden)) {
 				// eslint-disable-next-line
@@ -75,7 +68,7 @@ frappe.ui.form.Control = Class.extend({
 		// hide if no value
 		if (this.doctype && status==="Read" && !this.only_input
 			&& is_null(frappe.model.get_value(this.doctype, this.docname, this.df.fieldname))
-			&& !in_list(["HTML", "Image"], this.df.fieldtype)) {
+			&& !in_list(["HTML", "Image", "Button"], this.df.fieldtype)) {
 
 			// eslint-disable-next-line
 			if(explain) console.log("By Hide Read-only, null fields: None");
@@ -90,6 +83,44 @@ frappe.ui.form.Control = Class.extend({
 			&& this.$wrapper.toggleClass("hide-control", this.disp_status=="None")
 			&& this.refresh_input
 			&& this.refresh_input();
+
+		var value = this.get_value();
+
+		this.show_translatable_button(value);
+	},
+	show_translatable_button(value) {
+		// Disable translation non-string fields or special string fields
+		if (!frappe.model
+			|| !this.frm
+			|| !this.doc
+			|| !this.df.translatable
+			|| !frappe.model.can_write('Translation')
+			|| !value) return;
+
+		// Disable translation in website
+		if (!frappe.views || !frappe.views.TranslationManager) return;
+
+		// Already attached button
+		if (this.$wrapper.find('.clearfix .btn-translation').length) return;
+
+		const translation_btn =
+			`<a class="btn-translation no-decoration text-muted" title="${__('Open Translation')}">
+				<i class="fa fa-globe"></i>
+			</a>`;
+
+		$(translation_btn)
+			.appendTo(this.$wrapper.find('.clearfix'))
+			.on('click', () => {
+				if (!this.doc.__islocal) {
+					new frappe.views.TranslationManager({
+						'df': this.df,
+						'source_text': value,
+						'target_language': this.doc.language,
+						'doc': this.doc
+					});
+				}
+			});
+
 	},
 	get_doc: function() {
 		return this.doctype && this.docname
@@ -124,8 +155,11 @@ frappe.ui.form.Control = Class.extend({
 
 					if(me.df.change || me.df.onchange) {
 						// onchange event specified in df
-						return (me.df.change || me.df.onchange).apply(me, [e]);
+						let set = (me.df.change || me.df.onchange).apply(me, [e]);
+						me.set_invalid && me.set_invalid();
+						return set;
 					}
+					me.set_invalid && me.set_invalid();
 				}
 			]);
 		};
@@ -144,14 +178,12 @@ frappe.ui.form.Control = Class.extend({
 			return this.get_input_value ?
 				(this.parse ? this.parse(this.get_input_value()) : this.get_input_value()) :
 				undefined;
-		} else if(this.get_status()==='Read') {
-			return this.value || undefined;
 		} else {
-			return undefined;
+			return this.value || undefined;
 		}
 	},
 	set_model_value: function(value) {
-		if(this.doctype && this.docname) {
+		if(this.frm) {
 			this.last_value = value;
 			return frappe.model.set_value(this.doctype, this.docname, this.df.fieldname,
 				value, this.df.fieldtype);

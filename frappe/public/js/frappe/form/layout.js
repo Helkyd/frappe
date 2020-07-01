@@ -1,12 +1,4 @@
-// Copyright (c) 2015, Frappe Technologies Pvt. Ltd. and Contributors
-// MIT License. See license.txt
-frappe.provide("frappe.ui.form");
-
-// 	- page
-//		- section
-//			- column
-//		- section
-
+import '../class';
 
 frappe.ui.form.Layout = Class.extend({
 	init: function(opts) {
@@ -25,7 +17,7 @@ frappe.ui.form.Layout = Class.extend({
 		this.wrapper = $('<div class="form-layout">').appendTo(this.parent);
 		this.message = $('<div class="form-message text-muted small hidden"></div>').appendTo(this.wrapper);
 		if(!this.fields) {
-			this.fields = frappe.meta.sort_docfields(frappe.meta.docfield_map[this.doctype]);
+			this.fields = this.get_doctype_fields();
 		}
 		this.setup_tabbing();
 		this.render();
@@ -35,13 +27,41 @@ frappe.ui.form.Layout = Class.extend({
 			this.show_message(__("This form does not have any input"));
 		}
 	},
-	show_message: function(html) {
+	get_doctype_fields: function() {
+		let fields = [
+			{
+				parent: this.frm.doctype,
+				fieldtype: 'Data',
+				fieldname: '__newname',
+				reqd: 1,
+				hidden: 1,
+				label: __('Name'),
+				get_status: function(field) {
+					if (field.frm && field.frm.is_new()
+						&& field.frm.meta.autoname
+						&& ['prompt', 'name'].includes(field.frm.meta.autoname.toLowerCase())) {
+						return 'Write';
+					}
+					return 'None';
+				}
+			}
+		];
+		fields = fields.concat(frappe.meta.sort_docfields(frappe.meta.docfield_map[this.doctype]));
+		return fields;
+	},
+	show_message: function(html, color) {
+		if (this.message_color) {
+			// remove previous color
+			this.message.removeClass(this.message_color);
+		}
+		this.message_color = (color && ['yellow', 'blue'].includes(color)) ? color : 'blue';
 		if(html) {
 			if(html.substr(0, 1)!=='<') {
 				// wrap in a block
 				html = '<div>' + html + '</div>';
 			}
-			$(html).appendTo(this.message.removeClass('hidden'));
+			this.message.removeClass('hidden').addClass(this.message_color);
+			$(html).appendTo(this.message);
 		} else {
 			this.message.empty().addClass('hidden');
 		}
@@ -97,19 +117,27 @@ frappe.ui.form.Layout = Class.extend({
 		});
 	},
 
-	make_field: function(df, colspan, render = false) {
+	replace_field: function(fieldname, df, render) {
+		df.fieldname = fieldname; // change of fieldname is avoided
+		if (this.fields_dict[fieldname] && this.fields_dict[fieldname].df) {
+			const fieldobj = this.init_field(df, render);
+			this.fields_dict[fieldname].$wrapper.remove();
+			this.fields_list.splice(this.fields_dict[fieldname], 1, fieldobj);
+			this.fields_dict[fieldname] = fieldobj;
+			if (this.frm) {
+				fieldobj.perm = this.frm.perm;
+			}
+			this.section.fields_list.splice(this.section.fields_dict[fieldname], 1, fieldobj);
+			this.section.fields_dict[fieldname] = fieldobj;
+			this.refresh_fields([df]);
+		}
+	},
+
+	make_field: function(df, colspan, render) {
 		!this.section && this.make_section();
 		!this.column && this.make_column();
 
-		var fieldobj = frappe.ui.form.make_control({
-			df: df,
-			doctype: this.doctype,
-			parent: this.column.wrapper.get(0),
-			frm: this.frm,
-			render_input: render
-		});
-
-		fieldobj.layout = this;
+		const fieldobj = this.init_field(df, render);
 		this.fields_list.push(fieldobj);
 		this.fields_dict[df.fieldname] = fieldobj;
 		if(this.frm) {
@@ -118,7 +146,23 @@ frappe.ui.form.Layout = Class.extend({
 
 		this.section.fields_list.push(fieldobj);
 		this.section.fields_dict[df.fieldname] = fieldobj;
+		fieldobj.section = this.section;
 	},
+
+	init_field: function(df, render = false) {
+		const fieldobj = frappe.ui.form.make_control({
+			df: df,
+			doctype: this.doctype,
+			parent: this.column.wrapper.get(0),
+			frm: this.frm,
+			render_input: render,
+			doc: this.doc
+		});
+
+		fieldobj.layout = this;
+		return fieldobj;
+	},
+
 	make_page: function(df) {
 		var me = this,
 			head = $('<div class="form-clickable-section text-center">\
@@ -212,9 +256,29 @@ frappe.ui.form.Layout = Class.extend({
 				if(cnt % 2) {
 					$this.addClass("shaded-section");
 				}
-				cnt ++;
+				cnt++;
 			}
 		});
+	},
+
+	refresh_fields: function(fields) {
+		let fieldnames = fields.map((field) => {
+			if(field.fieldname) return field.fieldname;
+		});
+
+		this.fields_list.map(fieldobj => {
+			if(fieldnames.includes(fieldobj.df.fieldname)) {
+				fieldobj.refresh();
+				if(fieldobj.df["default"]) {
+					fieldobj.set_input(fieldobj.df["default"]);
+				}
+			}
+		});
+	},
+
+	add_fields: function(fields) {
+		this.render(fields);
+		this.refresh_fields(fields);
 	},
 
 	refresh_section_collapse: function() {
@@ -235,7 +299,7 @@ frappe.ui.form.Layout = Class.extend({
 				}
 
 				if(df.fieldname === '_form_dashboard') {
-					collapse = false;
+					collapse = localStorage.getItem('collapseFormDashboard')==='yes' ? true : false;
 				}
 
 				section.collapse(collapse);
@@ -259,7 +323,7 @@ frappe.ui.form.Layout = Class.extend({
 					fieldobj.perm = me.frm.perm;
 				}
 			}
-			refresh && fieldobj.refresh && fieldobj.refresh();
+			refresh && fieldobj.df && fieldobj.refresh && fieldobj.refresh();
 		}
 	},
 
@@ -372,11 +436,9 @@ frappe.ui.form.Layout = Class.extend({
 			} else {
 				field.grid.grid_rows[0].toggle_view(true);
 			}
-		}
-		else if(field.editor) {
+		} else if(field.editor) {
 			field.editor.set_focus();
-		}
-		else if(field.$input) {
+		} else if(field.$input) {
 			field.$input.focus();
 		}
 	},
@@ -390,27 +452,27 @@ frappe.ui.form.Layout = Class.extend({
 		// build dependants' dictionary
 		var has_dep = false;
 
-		for(var fkey in this.fields_list) {
+		for (var fkey in this.fields_list) {
 			var f = this.fields_list[fkey];
 			f.dependencies_clear = true;
-			if(f.df.depends_on) {
+			if (f.df.depends_on || f.df.mandatory_depends_on || f.df.read_only_depends_on) {
 				has_dep = true;
 			}
 		}
 
-		if(!has_dep)return;
+		if (!has_dep) return;
 
 		// show / hide based on values
-		for(var i=me.fields_list.length-1;i>=0;i--) {
+		for (var i=me.fields_list.length-1;i>=0;i--) {
 			var f = me.fields_list[i];
 			f.guardian_has_value = true;
-			if(f.df.depends_on) {
+			if (f.df.depends_on) {
 				// evaluate guardian
 
 				f.guardian_has_value = this.evaluate_depends_on_value(f.df.depends_on);
 
 				// show / hide
-				if(f.guardian_has_value) {
+				if (f.guardian_has_value) {
 					if(f.df.hidden_due_to_dependency) {
 						f.df.hidden_due_to_dependency = false;
 						f.refresh();
@@ -422,9 +484,34 @@ frappe.ui.form.Layout = Class.extend({
 					}
 				}
 			}
+
+			if (f.df.mandatory_depends_on) {
+				this.set_dependant_property(f.df.mandatory_depends_on, f.df.fieldname, 'reqd');
+			}
+
+			if (f.df.read_only_depends_on) {
+				this.set_dependant_property(f.df.read_only_depends_on, f.df.fieldname, 'read_only');
+			}
 		}
 
 		this.refresh_section_count();
+	},
+	set_dependant_property: function(condition, fieldname, property) {
+		let set_property = this.evaluate_depends_on_value(condition);
+		let form_obj;
+
+		if (this.frm) {
+			form_obj = this.frm;
+		} else if (this.is_dialog) {
+			form_obj = this;
+		}
+		if (form_obj) {
+			if (set_property) {
+				form_obj.set_df_property(fieldname, property, 1);
+			} else {
+				form_obj.set_df_property(fieldname, property, 0);
+			}
+		}
 	},
 	evaluate_depends_on_value: function(expression) {
 		var out = null;
@@ -440,9 +527,18 @@ frappe.ui.form.Layout = Class.extend({
 
 		var parent = this.frm ? this.frm.doc : null;
 
-		if(expression.substr(0,5)=='eval:') {
+		if(typeof(expression) === 'boolean') {
+			out = expression;
+
+		} else if(typeof(expression) === 'function') {
+			out = expression(doc);
+
+		} else if(expression.substr(0,5)=='eval:') {
 			try {
 				out = eval(expression.substr(5));
+				if(parent && parent.istable && expression.includes('is_submittable')) {
+					out = true;
+				}
 			} catch(e) {
 				frappe.throw(__('Invalid "depends_on" expression'));
 			}
@@ -477,7 +573,7 @@ frappe.ui.form.Section = Class.extend({
 			wrapper: this.wrapper
 		};
 
-		if(this.df.collapsible) {
+		if (this.df.collapsible && this.df.fieldname !== '_form_dashboard') {
 			this.collapse(true);
 		}
 
@@ -503,12 +599,15 @@ frappe.ui.form.Section = Class.extend({
 			if(this.df.cssClass) {
 				this.wrapper.addClass(this.df.cssClass);
 			}
+			if (this.df.hide_border) {
+				this.wrapper.toggleClass("hide-border", true);
+			}
 		}
-
 
 		// for bc
 		this.body = $('<div class="section-body">').appendTo(this.wrapper);
 	},
+
 	make_head: function() {
 		var me = this;
 		if(!this.df.collapsible) {
@@ -550,6 +649,11 @@ frappe.ui.form.Section = Class.extend({
 		if(hide===undefined) {
 			hide = !this.body.hasClass("hide");
 		}
+
+		if (this.df.fieldname==='_form_dashboard') {
+			localStorage.setItem('collapseFormDashboard', hide ? 'yes' : 'no');
+		}
+
 		this.body.toggleClass("hide", hide);
 		this.head.toggleClass("collapsed", hide);
 		this.indicator.toggleClass("octicon-chevron-down", hide);
@@ -562,6 +666,11 @@ frappe.ui.form.Section = Class.extend({
 			}
 		});
 	},
+
+	is_collapsed() {
+		return this.body.hasClass('hide');
+	},
+
 	has_missing_mandatory: function() {
 		var missing_mandatory = false;
 		for (var j=0, l=this.fields_list.length; j < l; j++) {
@@ -590,11 +699,13 @@ frappe.ui.form.Column = Class.extend({
 			</form>\
 		</div>').appendTo(this.section.body)
 			.find("form")
-			.on("submit", function() { return false; });
+			.on("submit", function() {
+				return false;
+			});
 
-		if(this.df.label) {
-			$('<label class="control-label">'+ __(this.df.label)
-				+'</label>').appendTo(this.wrapper);
+		if (this.df.label) {
+			$('<label class="control-label">' + __(this.df.label)
+				+ '</label>').appendTo(this.wrapper);
 		}
 	},
 	resize_all_columns: function() {

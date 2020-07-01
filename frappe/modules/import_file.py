@@ -6,6 +6,18 @@ from __future__ import unicode_literals, print_function
 import frappe, os, json
 from frappe.modules import get_module_path, scrub_dt_dn
 from frappe.utils import get_datetime_str
+from frappe.model.base_document import get_controller
+
+ignore_values = {
+	"Report": ["disabled", "prepared_report"],
+	"Print Format": ["disabled"],
+	"Notification": ["enabled"],
+	"Print Style": ["disabled"],
+	"Module Onboarding": ['is_complete'],
+	"Onboarding Step": ['is_complete', 'is_skipped']
+}
+
+ignore_doctypes = [""]
 
 def import_files(module, dt=None, dn=None, force=False, pre_process=None, reset_permissions=False):
 	if type(module) is list:
@@ -84,21 +96,19 @@ def read_doc_from_file(path):
 
 	return doc
 
-ignore_values = {
-	"Report": ["disabled"],
-	"Print Format": ["disabled"],
-	"Email Alert": ["enabled"],
-	"Print Style": ["disabled"]
-}
-
-ignore_doctypes = [""]
-
 def import_doc(docdict, force=False, data_import=False, pre_process=None,
 		ignore_version=None, reset_permissions=False):
-
 	frappe.flags.in_import = True
 	docdict["__islocal"] = 1
+
+	controller = get_controller(docdict['doctype'])
+	if controller and hasattr(controller, 'prepare_for_import') and callable(getattr(controller, 'prepare_for_import')):
+		controller.prepare_for_import(docdict)
+
 	doc = frappe.get_doc(docdict)
+
+	doc.run_method("before_import")
+
 	doc.flags.ignore_version = ignore_version
 	if pre_process:
 		pre_process(doc)
@@ -106,6 +116,7 @@ def import_doc(docdict, force=False, data_import=False, pre_process=None,
 	ignore = []
 
 	if frappe.db.exists(doc.doctype, doc.name):
+
 		old_doc = frappe.get_doc(doc.doctype, doc.name)
 
 		if doc.doctype in ignore_values:
@@ -128,5 +139,7 @@ def import_doc(docdict, force=False, data_import=False, pre_process=None,
 		doc.flags.ignore_validate = True
 		doc.flags.ignore_permissions = True
 		doc.flags.ignore_mandatory = True
+
 	doc.insert()
+
 	frappe.flags.in_import = False

@@ -6,15 +6,16 @@ import frappe, re, os
 from frappe.utils.pdf import get_pdf
 from frappe.email.smtp import get_outgoing_email_account
 from frappe.utils import (get_url, scrub_urls, strip, expand_relative_urls, cint,
-	split_emails, to_markdown, markdown, encode, random_string, parse_addr)
+	split_emails, to_markdown, markdown, random_string, parse_addr)
 import email.utils
 from six import iteritems, text_type, string_types
 from email.mime.multipart import MIMEMultipart
+from email.header import Header
 
 
 def get_email(recipients, sender='', msg='', subject='[No Subject]',
 	text_content = None, footer=None, print_html=None, formatted=None, attachments=None,
-	content=None, reply_to=None, cc=[], email_account=None, expose_recipients=None,
+	content=None, reply_to=None, cc=[], bcc=[], email_account=None, expose_recipients=None,
 	inline_images=[], header=None):
 	""" Prepare an email with the following format:
 		- multipart/mixed
@@ -26,7 +27,7 @@ def get_email(recipients, sender='', msg='', subject='[No Subject]',
 				- attachment
 	"""
 	content = content or msg
-	emailobj = EMail(sender, recipients, subject, reply_to=reply_to, cc=cc, email_account=email_account, expose_recipients=expose_recipients)
+	emailobj = EMail(sender, recipients, subject, reply_to=reply_to, cc=cc, bcc=bcc, email_account=email_account, expose_recipients=expose_recipients)
 
 	if not content.strip().startswith("<"):
 		content = markdown(content)
@@ -50,7 +51,7 @@ class EMail:
 	Also provides a clean way to add binary `FileData` attachments
 	Also sets all messages as multipart/alternative for cleaner reading in text-only clients
 	"""
-	def __init__(self, sender='', recipients=(), subject='', alternative=0, reply_to=None, cc=(), email_account=None, expose_recipients=None):
+	def __init__(self, sender='', recipients=(), subject='', alternative=0, reply_to=None, cc=(), bcc=(), email_account=None, expose_recipients=None):
 		from email import charset as Charset
 		Charset.add_charset('utf-8', Charset.QP, Charset.QP, 'utf-8')
 
@@ -71,6 +72,7 @@ class EMail:
 		self.msg_alternative = MIMEMultipart('alternative')
 		self.msg_root.attach(self.msg_alternative)
 		self.cc = cc or []
+		self.bcc = bcc or []
 		self.html_set = False
 
 		self.email_account = email_account or get_outgoing_email_account(sender=sender)
@@ -142,12 +144,12 @@ class EMail:
 
 	def attach_file(self, n):
 		"""attach a file from the `FileData` table"""
-		from frappe.utils.file_manager import get_file
-		res = get_file(n)
-		if not res:
+		_file = frappe.get_doc("File", {"file_name": n})
+		content = _file.get_content()
+		if not content:
 			return
 
-		self.add_attachment(res[0], res[1])
+		self.add_attachment(_file.file_name, content)
 
 	def add_attachment(self, fname, fcontent, content_type=None,
 		parent=None, content_id=None, inline=False):
@@ -163,27 +165,35 @@ class EMail:
 
 	def validate(self):
 		"""validate the Email Addresses"""
-		from frappe.utils import validate_email_add
+		from frappe.utils import validate_email_address
 
 		if not self.sender:
 			self.sender = self.email_account.default_sender
 
-		validate_email_add(strip(self.sender), True)
-		self.reply_to = validate_email_add(strip(self.reply_to) or self.sender, True)
+		validate_email_address(strip(self.sender), True)
+		self.reply_to = validate_email_address(strip(self.reply_to) or self.sender, True)
 
 		self.replace_sender()
+		self.replace_sender_name()
 
 		self.recipients = [strip(r) for r in self.recipients]
 		self.cc = [strip(r) for r in self.cc]
+		self.bcc = [strip(r) for r in self.bcc]
 
-		for e in self.recipients + (self.cc or []):
-			validate_email_add(e, True)
+		for e in self.recipients + (self.cc or []) + (self.bcc or []):
+			validate_email_address(e, True)
 
 	def replace_sender(self):
 		if cint(self.email_account.always_use_account_email_id_as_sender):
 			self.set_header('X-Original-From', self.sender)
 			sender_name, sender_email = parse_addr(self.sender)
-			self.sender = email.utils.formataddr((sender_name or self.email_account.name, self.email_account.email_id))
+			self.sender = email.utils.formataddr((str(Header(sender_name or self.email_account.name, 'utf-8')), self.email_account.email_id))
+
+	def replace_sender_name(self):
+		if cint(self.email_account.always_use_account_name_as_sender_name):
+			self.set_header('X-Original-From', self.sender)
+			sender_name, sender_email = parse_addr(self.sender)
+			self.sender = email.utils.formataddr((str(Header(self.email_account.name, 'utf-8')), sender_email))
 
 	def set_message_id(self, message_id, is_notification=False):
 		if message_id:
@@ -321,9 +331,9 @@ def add_attachment(fname, fcontent, content_type=None,
 	# Set the filename parameter
 	if fname:
 		attachment_type = 'inline' if inline else 'attachment'
-		part.add_header(b'Content-Disposition', attachment_type, filename=text_type(fname))
+		part.add_header('Content-Disposition', attachment_type, filename=text_type(fname))
 	if content_id:
-		part.add_header(b'Content-ID', '<{0}>'.format(content_id))
+		part.add_header('Content-ID', '<{0}>'.format(content_id))
 
 	parent.attach(part)
 
@@ -414,12 +424,11 @@ def get_filecontent_from_path(path):
 		full_path = path
 
 	if os.path.exists(full_path):
-		with open(full_path) as f:
+		with open(full_path, 'rb') as f:
 			filecontent = f.read()
 
 		return filecontent
 	else:
-		print(full_path + ' doesn\'t exists')
 		return None
 
 

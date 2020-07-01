@@ -1,13 +1,22 @@
+
 frappe.ui.form.ControlDate = frappe.ui.form.ControlData.extend({
 	make_input: function() {
 		this._super();
+		this.make_picker();
+	},
+	make_picker: function() {
 		this.set_date_options();
 		this.set_datepicker();
 		this.set_t_for_today();
 	},
 	set_formatted_input: function(value) {
 		this._super(value);
-		if(!value) return;
+		if (this.timepicker_only) return;
+		if (!this.datepicker) return;
+		if(!value) {
+			this.datepicker.clear();
+			return;
+		}
 
 		let should_refresh = this.last_value && this.last_value !== value;
 
@@ -17,6 +26,7 @@ frappe.ui.form.ControlDate = frappe.ui.form.ControlData.extend({
 				const selected_date =
 					moment(this.datepicker.selectedDates[0])
 						.format(this.date_format);
+
 				should_refresh = selected_date !== value;
 			} else {
 				// if datepicker has no selected date, refresh
@@ -29,19 +39,28 @@ frappe.ui.form.ControlDate = frappe.ui.form.ControlData.extend({
 		}
 	},
 	set_date_options: function() {
-		var me = this;
-		var lang = frappe.boot.user.language;
+		// webformTODO:
+		let sysdefaults = frappe.boot.sysdefaults;
+
+		let lang = 'en';
+		frappe.boot.user && (lang = frappe.boot.user.language);
 		if(!$.fn.datepicker.language[lang]) {
 			lang = 'en';
 		}
+
+		let date_format = sysdefaults && sysdefaults.date_format
+			? sysdefaults.date_format : 'yyyy-mm-dd';
+
+		let now_date = new Date();
+
 		this.today_text = __("Today");
-		this.date_format = moment.defaultDateFormat;
+		this.date_format = frappe.defaultDateFormat;
 		this.datepicker_options = {
 			language: lang,
 			autoClose: true,
 			todayButton: true,
-			dateFormat: (frappe.boot.sysdefaults.date_format || 'yyyy-mm-dd'),
-			startDate: frappe.datetime.now_date(true),
+			dateFormat: date_format,
+			startDate: now_date,
 			keyboardNav: false,
 			onSelect: () => {
 				this.$input.trigger('change');
@@ -49,24 +68,11 @@ frappe.ui.form.ControlDate = frappe.ui.form.ControlData.extend({
 			onShow: () => {
 				this.datepicker.$datepicker
 					.find('.datepicker--button:visible')
-					.text(me.today_text);
+					.text(this.today_text);
 
 				this.update_datepicker_position();
 			}
 		};
-	},
-	update_datepicker_position: function() {
-		if(!this.frm) return;
-		// show datepicker above or below the input
-		// based on scroll position
-		var window_height = $(window).height();
-		var window_scroll_top = $(window).scrollTop();
-		var el_offset_top = this.$input.offset().top + 280;
-		var position = 'top left';
-		if(window_height + window_scroll_top >= el_offset_top) {
-			position = 'bottom left';
-		}
-		this.datepicker.update('position', position);
 	},
 	set_datepicker: function() {
 		this.$input.datepicker(this.datepicker_options);
@@ -79,6 +85,29 @@ frappe.ui.form.ControlDate = frappe.ui.form.ControlData.extend({
 			.click(() => {
 				this.datepicker.selectDate(this.get_now_date());
 			});
+	},
+	update_datepicker_position: function() {
+		if(!this.frm) return;
+		// show datepicker above or below the input
+		// based on scroll position
+		// We have to bodge around the timepicker getting its position
+		// wrong by 42px when opening upwards.
+		const $header = $('.page-head');
+		const header_bottom = $header.position().top + $header.outerHeight();
+		const picker_height = this.datepicker.$datepicker.outerHeight() + 12;
+		const picker_top = this.$input.offset().top - $(window).scrollTop() - picker_height;
+
+		var position = 'top left';
+		// 12 is the default datepicker.opts[offset]
+		if (picker_top <= header_bottom) {
+			position = 'bottom left';
+			if (this.timepicker_only) this.datepicker.opts['offset'] = 12;
+		} else {
+			// To account for 42px incorrect positioning
+			if (this.timepicker_only) this.datepicker.opts['offset'] = -30;
+		}
+
+		this.datepicker.update('position', position);
 	},
 	get_now_date: function() {
 		return frappe.datetime.now_date(true);
@@ -111,7 +140,10 @@ frappe.ui.form.ControlDate = frappe.ui.form.ControlData.extend({
 	},
 	validate: function(value) {
 		if(value && !frappe.datetime.validate(value)) {
-			frappe.msgprint(__("Date must be in format: {0}", [frappe.sys_defaults.date_format || "yyyy-mm-dd"]));
+			let sysdefaults = frappe.sys_defaults;
+			let date_format = sysdefaults && sysdefaults.date_format
+				? sysdefaults.date_format : 'yyyy-mm-dd';
+			frappe.msgprint(__("Date {0} must be in format: {1}", [value, date_format]));
 			return '';
 		}
 		return value;

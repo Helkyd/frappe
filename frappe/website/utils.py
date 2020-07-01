@@ -2,8 +2,15 @@
 # MIT License. See license.txt
 
 from __future__ import unicode_literals
-import frappe, re, os
+import functools
+import re
+import os
+import frappe
+
 from six import iteritems
+from past.builtins import cmp
+from frappe.utils import markdown
+
 
 def delete_page_cache(path):
 	cache = frappe.cache()
@@ -17,7 +24,7 @@ def delete_page_cache(path):
 			cache.delete_key(name)
 
 def find_first_image(html):
-	m = re.finditer("""<img[^>]*src\s?=\s?['"]([^'"]*)['"]""", html)
+	m = re.finditer(r"""<img[^>]*src\s?=\s?['"]([^'"]*)['"]""", html)
 	try:
 		return next(m).groups()[0]
 	except StopIteration:
@@ -30,17 +37,34 @@ def can_cache(no_cache=False):
 		return False
 	return not no_cache
 
+
 def get_comment_list(doctype, name):
-	return frappe.db.sql("""select
-		content, sender_full_name, creation, sender
-		from `tabCommunication`
-		where
-			communication_type='Comment'
-			and reference_doctype=%s
-			and reference_name=%s
-			and (comment_type is null or comment_type in ('Comment', 'Communication'))
-			and modified >= DATE_SUB(NOW(),INTERVAL 1 YEAR)
-		order by creation""", (doctype, name), as_dict=1) or []
+	comments = frappe.get_all('Comment',
+		fields=['name', 'creation', 'owner',
+				'comment_email', 'comment_by', 'content'],
+		filters=dict(
+			reference_doctype=doctype,
+			reference_name=name,
+			comment_type='Comment',
+		),
+		or_filters=[
+			['owner', '=', frappe.session.user],
+			['published', '=', 1]])
+
+	communications = frappe.get_all("Communication",
+		fields=['name', 'creation', 'owner', 'owner as comment_email',
+				'sender_full_name as comment_by', 'content', 'recipients'],
+		filters=dict(
+			reference_doctype=doctype,
+			reference_name=name,
+		),
+		or_filters=[
+			['recipients', 'like', '%{0}%'.format(frappe.session.user)],
+			['cc', 'like', '%{0}%'.format(frappe.session.user)],
+			['bcc', 'like', '%{0}%'.format(frappe.session.user)]])
+
+	return sorted((comments + communications), key=lambda comment: comment['creation'], reverse=True)
+
 
 def get_home_page():
 	if frappe.local.flags.home_page:
@@ -87,10 +111,10 @@ def is_signup_enabled():
 def cleanup_page_name(title):
 	"""make page name from title"""
 	if not title:
-		return title
+		return ''
 
 	name = title.lower()
-	name = re.sub('[~!@#$%^&*+()<>,."\'\?]', '', name)
+	name = re.sub(r'[~!@#$%^&*+()<>,."\'\?]', '', name)
 	name = re.sub('[:/]', '-', name)
 
 	name = '-'.join(name.split())
@@ -184,13 +208,14 @@ def abs_url(path):
 		return
 	if path.startswith('http://') or path.startswith('https://'):
 		return path
+	if path.startswith('data:'):
+		return path
 	if not path.startswith("/"):
 		path = "/" + path
 	return path
 
 def get_toc(route, url_prefix=None, app=None):
 	'''Insert full index (table of contents) for {index} tag'''
-	from frappe.website.utils import get_full_index
 
 	full_index = get_full_index(app=app)
 
@@ -206,7 +231,7 @@ def get_next_link(route, url_prefix=None, app=None):
 	route = route.rstrip('/')
 	children_map = get_full_index(app=app)
 	parent_route = os.path.dirname(route)
-	children = children_map[parent_route]
+	children = children_map.get(parent_route, None)
 
 	if parent_route and children:
 		for i, c in enumerate(children):
@@ -257,8 +282,8 @@ def get_full_index(route=None, app=None):
 								added.append(child_route)
 
 					# add remaining pages not in index.txt
-					_children = sorted(children, lambda a, b: cmp(
-						os.path.basename(a.route), os.path.basename(b.route)))
+					_children = sorted(children, key = functools.cmp_to_key(lambda a, b: cmp(
+						os.path.basename(a.route), os.path.basename(b.route))))
 
 					for child_route in _children:
 						if child_route not in new_children:
@@ -278,17 +303,33 @@ def get_full_index(route=None, app=None):
 
 def extract_title(source, path):
 	'''Returns title from `&lt;!-- title --&gt;` or &lt;h1&gt; or path'''
-	title = ''
+	title = extract_comment_tag(source, 'title')
 
-	if "<!-- title:" in source:
-		title = re.findall('<!-- title:([^>]*) -->', source)[0].strip()
-	elif "<h1>" in source:
+	if not title and "<h1>" in source:
+		# extract title from h1
 		match = re.findall('<h1>([^<]*)', source)
-		title = match[0].strip()[:300]
+		title_content = match[0].strip()[:300]
+		if '{{' not in title_content:
+			title = title_content
+
 	if not title:
+		# make title from name
 		title = os.path.basename(path.rsplit('.', )[0].rstrip('/')).replace('_', ' ').replace('-', ' ').title()
 
 	return title
+
+def extract_comment_tag(source, tag):
+	'''Extract custom tags in comments from source.
+
+	:param source: raw template source in HTML
+	:param title: tag to search, example "title"
+	'''
+
+	if "<!-- {0}:".format(tag) in source:
+		return re.findall('<!-- {0}:([^>]*) -->'.format(tag), source)[0].strip()
+	else:
+		return None
+
 
 def add_missing_headers():
 	'''Walk and add missing headers in docs (to be called from bench execute)'''
@@ -309,3 +350,18 @@ def add_missing_headers():
 						content = '# {0}\n\n'.format(h) + content
 						f.write(content.encode('utf-8'))
 
+def get_html_content_based_on_type(doc, fieldname, content_type):
+		'''
+		Set content based on content_type
+		'''
+		content = doc.get(fieldname)
+
+		if content_type == 'Markdown':
+			content = markdown(doc.get(fieldname + '_md'))
+		elif content_type == 'HTML':
+			content = doc.get(fieldname + '_html')
+
+		if content == None:
+			content = ''
+
+		return content

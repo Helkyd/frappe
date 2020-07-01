@@ -1,35 +1,41 @@
 {%- set post = doc -%}
-<div class="web-list-item blog-list-item">
-	<div class="row">
-		<div class="col-xs-12">
-			<h2><a href="/{{ post.route }}">{{ post.title }}</a></h2>
+<div class="blog-card col-sm-12 {{ 'col-md-8' if post.featured else 'col-md-4' }}">
+	<div class="card h-100">
+		<div class="card-img-top">
 			{% if post.cover_image %}
-			<p style="height: 200px; overflow: hidden;">
-				<img src="{{ post.cover_image }}" alt="{{post.title}} - Cover Image" style="width: 60%;"/ style='blog-cover-image'>
-			</p>
-			{% endif %}
-			<p class="post-description">{{ post.intro }}</p>
-
-			<div style='margin-top: 15px;'>
-				<div class="inline-block" style="vertical-align: top">
-					<div class="avatar">
-						<img itemprop="thumbnailUrl" src="{{ post.avatar or "/assets/frappe/images/default-avatar.png" }}" />
-					</div>
+				<img src="{{ post.cover_image }}" alt="{{post.title}} - Cover Image">
+			{% else %}
+				<div class="default-cover">
+					<span>{{ post.title }}</span>
 				</div>
-				<div class="inline-block" style="width: calc(100% - 100px)">
-					<div class='text-muted'>
-						<a href="/blog?blogger={{ post.blogger }}">{{ post.full_name }}</a>
-					</div>
-					<div class="text-muted small">
+			{% endif %}
+		</div>
+		<div class="card-body">
+			<div>
+				<div class="text-muted small text-uppercase">
+					{%- if post.featured -%}
+						<span class="text-body">{{ _('Featured') }} &middot; </span>
+					{%- endif -%}
+					<span>{{ post.category.title }}</span>
+				</div>
+				{%- if post.featured -%}
+					<h5 class="mt-1"><span class="text-dark">{{ post.title }}</span></h5>
+				{%- else -%}
+					<h5 class="mt-1"><span class="text-dark">{{ post.title }}</span></h3>
+				{%- endif -%}
+				<p class="post-description text-muted">{{ post.intro }}</p>
+			</div>
+			<div class="blog-card-footer">
+				<img class="avatar website-image-extra-small" src="{{ post.avatar }}">
+				<div class="text-muted">
+					<a href="/blog?blogger={{ post.blogger }}">{{ post.full_name }}</a>
+					<div class="small">
 						{{ frappe.format_date(post.published_on) }}
-						{% if post.comments %}
-						<span style='display: inline-block; margin-left: 10px;'>
-						<i class='octicon octicon-comment-discussion'></i> {{ post.comments }}
-						</span>
-						{% endif %}
+						{% if post.read_time %} &middot; {{ post.read_time }} min read {% endif %}
 					</div>
 				</div>
 			</div>
 		</div>
+		<a class="stretched-link" href="/{{ post.route }}"></a>
 	</div>
 </div>

@@ -23,7 +23,9 @@ frappe.form.formatters = {
 	},
 	Float: function(value, docfield, options, doc) {
 		// don't allow 0 precision for Floats, hence or'ing with null
-		var precision = docfield.precision || cint(frappe.boot.sysdefaults.float_precision) || null;
+		var precision = docfield.precision
+			|| cint(frappe.boot.sysdefaults && frappe.boot.sysdefaults.float_precision)
+			|| null;
 		if (docfield.options && docfield.options.trim()) {
 			// options points to a currency field, but expects precision of float!
 			docfield.precision = precision;
@@ -50,23 +52,34 @@ frappe.form.formatters = {
 	Percent: function(value, docfield, options) {
 		return frappe.form.formatters._right(flt(value, 2) + "%", options)
 	},
-	Currency: function(value, docfield, options, doc) {
-		var currency = frappe.meta.get_field_currency(docfield, doc);
+	Rating: function(value) {
+		return `<span class="rating">
+	${Array.from(new Array(5)).map((_, i) =>
+		`<i class="fa fa-fw fa-star ${i < (value || 0) ? "star-click": "" } star-icon" data-idx="${(i+1)}"></i>`
+	).join('')}
+		</span>`;
+	},
+	Currency: function (value, docfield, options, doc) {
+		var currency  = frappe.meta.get_field_currency(docfield, doc);
 		var precision = docfield.precision || cint(frappe.boot.sysdefaults.currency_precision) || 2;
+
+		// If you change anything below, it's going to hurt a company in UAE, a bit.
 		if (precision > 2) {
-			let parts = cstr(value).split('.');
-			let decimals = parts.length > 1 ? parts[1] : '';
-			if (decimals.length < 3) {
-				// min precision 2
-				precision = 2;
-			} else if (decimals.length < precision) {
-				// or min decimals
-				precision = decimals.length;
+			var parts	 = cstr(value).split("."); // should be minimum 2, comes from the DB
+			var decimals = parts.length > 1 ? parts[1] : ""; // parts.length == 2 ???
+
+			if ( decimals.length < 3 || decimals.length < precision ) {
+				const fraction = frappe.model.get_value(":Currency", currency, "fraction_units") || 100; // if not set, minimum 2.
+
+				if (decimals.length < cstr(fraction).length) {
+					precision = cstr(fraction).length - 1;
+				}
 			}
 		}
-		value = (value==null || value==="") ?
-			"" : format_currency(value, currency, precision);
-		if (options && options.only_value) {
+
+		value = (value == null || value === "") ? "" : format_currency(value, currency, precision);
+
+		if ( options && options.only_value ) {
 			return value;
 		} else {
 			return frappe.form.formatters._right(value, options);
@@ -74,7 +87,7 @@ frappe.form.formatters = {
 	},
 	Check: function(value) {
 		if(value) {
-			return '<i class="octicon octicon-check" style="margin-right: 3px;"></i>';
+			return '<i class="fa fa-check" style="margin-right: 3px;"></i>';
 		} else {
 			return '<i class="fa fa-square disabled-check"></i>';
 		}
@@ -82,7 +95,7 @@ frappe.form.formatters = {
 	Link: function(value, docfield, options, doc) {
 		var doctype = docfield._options || docfield.options;
 		var original_value = value;
-		if(value && value.match(/^['"].*['"]$/)) {
+		if(value && value.match && value.match(/^['"].*['"]$/)) {
 			value.replace(/^.(.*).$/, "$1");
 		}
 
@@ -91,7 +104,10 @@ frappe.form.formatters = {
 		}
 
 		if(frappe.form.link_formatters[doctype]) {
-			value = frappe.form.link_formatters[doctype](value, doc);
+			// don't apply formatters in case of composite (parent field of same type)
+			if (doc && doctype !== doc.doctype) {
+				value = frappe.form.link_formatters[doctype](value, doc);
+			}
 		}
 
 		if(!value) {
@@ -104,16 +120,19 @@ frappe.form.formatters = {
 			return repl('<a onclick="%(onclick)s">%(value)s</a>',
 				{onclick: docfield.link_onclick.replace(/"/g, '&quot;'), value:value});
 		} else if(docfield && doctype) {
-			return repl('<a class="grey" href="#Form/%(doctype)s/%(name)s" data-doctype="%(doctype)s">%(label)s</a>', {
-				doctype: encodeURIComponent(doctype),
-				name: encodeURIComponent(original_value),
-				label: __(options && options.label || value)
-			});
+			return `<a class="grey"
+				href="#Form/${encodeURIComponent(doctype)}/${encodeURIComponent(original_value)}"
+				data-doctype="${doctype}"
+				data-name="${original_value}">
+				${__(options && options.label || value)}</a>`
 		} else {
 			return value;
 		}
 	},
 	Date: function(value) {
+		if (!frappe.datetime.str_to_user) {
+			return value;
+		}
 		if (value) {
 			value = frappe.datetime.str_to_user(value);
 			// handle invalid date
@@ -126,10 +145,7 @@ frappe.form.formatters = {
 	},
 	DateRange: function(value) {
 		if($.isArray(value)) {
-			return __("{0} to {1}", [
-				frappe.datetime.str_to_user(value[0]),
-				frappe.datetime.str_to_user(value[1])
-			]);
+			return __("{0} to {1}", [frappe.datetime.str_to_user(value[0]), frappe.datetime.str_to_user(value[1])]);
 		} else {
 			return value || "";
 		}
@@ -140,7 +156,8 @@ frappe.form.formatters = {
 			if(frappe.boot.sysdefaults.time_zone) {
 				m = m.tz(frappe.boot.sysdefaults.time_zone);
 			}
-			return m.format(frappe.boot.sysdefaults.date_format.toUpperCase() + ', h:mm a z');
+			return m.format(frappe.boot.sysdefaults.date_format.toUpperCase()
+				+  ' ' + frappe.boot.sysdefaults.time_format);
 		} else {
 			return "";
 		}
@@ -158,11 +175,26 @@ frappe.form.formatters = {
 			}
 
 			if(!match) {
-				value = replace_newlines(value);
+				value = frappe.utils.replace_newlines(value);
 			}
 		}
 
 		return frappe.form.formatters.Data(value);
+	},
+	Time: function(value) {
+		if (value) {
+			value = frappe.datetime.str_to_user(value, true);
+		}
+
+		return value || "";
+	},
+	Duration: function(value, docfield) {
+		if (value) {
+			let duration_options = frappe.utils.get_duration_options(docfield);
+			value = frappe.utils.get_formatted_duration(value, duration_options);
+		}
+
+		return value || "";
 	},
 	LikedBy: function(value) {
 		var html = "";
@@ -181,13 +213,7 @@ frappe.form.formatters = {
 		return html;
 	},
 	Comment: function(value) {
-		var html = "";
-		$.each(JSON.parse(value || "[]"), function(i, v) {
-			if(v) html+= '<span class="label label-warning" \
-				style="margin-right: 7px;"\
-				data-field="_comments" data-label="'+v.name+'">'+v.comment+'</span>';
-		});
-		return html;
+		return value;
 	},
 	Assign: function(value) {
 		var html = "";
@@ -224,6 +250,24 @@ frappe.form.formatters = {
 	},
 	Email: function(value) {
 		return $("<div></div>").text(value).html();
+	},
+	FileSize: function(value) {
+		if(value > 1048576) {
+			value = flt(flt(value) / 1048576, 1) + "M";
+		} else if (value > 1024) {
+			value = flt(flt(value) / 1024, 1) + "K";
+		}
+		return value;
+	},
+	TableMultiSelect: function(rows, df, options) {
+		rows = rows || [];
+		const meta = frappe.get_meta(df.options);
+		const link_field = meta.fields.find(df => df.fieldtype === 'Link');
+		const formatted_values = rows.map(row => {
+			const value = row[link_field.fieldname];
+			return frappe.format(value, link_field, options, row);
+		});
+		return formatted_values.join(', ');
 	}
 }
 

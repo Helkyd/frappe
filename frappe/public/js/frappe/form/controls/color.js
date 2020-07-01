@@ -19,7 +19,6 @@ frappe.ui.form.ControlColor = frappe.ui.form.ControlData.extend({
 	},
 	make_color_input: function () {
 		this.$wrapper
-			.find('.control-input-wrapper')
 			.append(`<div class="color-picker">
 				<div class="color-picker-pallete"></div>
 			</div>`);
@@ -79,7 +78,6 @@ frappe.ui.form.ControlColor = frappe.ui.form.ControlData.extend({
 		if(is_valid) {
 			return value;
 		}
-		frappe.msgprint(__("{0} is not a valid hex color", [value]));
 		return null;
 	}
 });

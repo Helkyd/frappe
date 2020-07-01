@@ -1,54 +1,79 @@
 // Copyright (c) 2015, Frappe Technologies Pvt. Ltd. and Contributors
 // MIT License. See license.txt
+/* eslint-disable no-console */
+
+import hljs from './syntax_highlight';
 
 frappe.provide("website");
 frappe.provide("frappe.awesome_bar_path");
-cur_frm = null;
+window.cur_frm = null;
 
 $.extend(frappe, {
 	boot: {
 		lang: 'en'
 	},
 	_assets_loaded: [],
-	require: function(url) {
-		if(frappe._assets_loaded.indexOf(url)!==-1) return;
-		return $.ajax({
-			url: url,
-			async: false,
-			dataType: "text",
-			success: function(data) {
-				if(url.split(".").splice(-1) == "js") {
-					var el = document.createElement('script');
-				} else {
-					var el = document.createElement('style');
-				}
-				el.appendChild(document.createTextNode(data));
-				document.getElementsByTagName('head')[0].appendChild(el);
-				frappe._assets_loaded.push(url);
+	require: async function(links, callback) {
+		if (typeof (links) === 'string') {
+			links = [links];
+		}
+		for (let link of links) {
+			await this.add_asset_to_head(link);
+		}
+		callback && callback();
+	},
+	add_asset_to_head(link) {
+		return new Promise(resolve => {
+			if (frappe._assets_loaded.includes(link)) return resolve();
+			let el;
+			if(link.split('.').pop() === 'js') {
+				el = document.createElement('script');
+				el.type = 'text/javascript';
+				el.src = link;
+			} else {
+				el = document.createElement('link');
+				el.type = 'text/css';
+				el.rel = 'stylesheet';
+				el.href = link;
 			}
+			document.getElementsByTagName('head')[0].appendChild(el);
+			el.onload = () => {
+				frappe._assets_loaded.push(link);
+				resolve();
+			};
 		});
 	},
-	hide_message: function(text) {
+	hide_message: function() {
 		$('.message-overlay').remove();
 	},
 	call: function(opts) {
 		// opts = {"method": "PYTHON MODULE STRING", "args": {}, "callback": function(r) {}}
+		if (typeof arguments[0]==='string') {
+			opts = {
+				method: arguments[0],
+				args: arguments[1],
+				callback: arguments[2]
+			}
+		}
+
 		frappe.prepare_call(opts);
-		if(opts.freeze) { frappe.freeze(); }
+		if(opts.freeze) {
+			frappe.freeze();
+		}
 		return $.ajax({
 			type: opts.type || "POST",
 			url: "/",
 			data: opts.args,
 			dataType: "json",
-			headers: { "X-Frappe-CSRF-Token": frappe.csrf_token },
+			headers: { "X-Frappe-CSRF-Token": frappe.csrf_token, "X-Frappe-CMD": (opts.args && opts.args.cmd  || '') || '' },
 			statusCode: opts.statusCode || {
-				404: function(xhr) {
+				404: function() {
 					frappe.msgprint(__("Not found"));
 				},
-				403: function(xhr) {
+				403: function() {
 					frappe.msgprint(__("Not permitted"));
 				},
-				200: function(data, xhr) {
+				200: function(data) {
 					if(opts.callback)
 						opts.callback(data);
 					if(opts.success)
@@ -87,9 +112,8 @@ $.extend(frappe, {
 			opts.args.cmd = opts.method;
 		}
 
-		// stringify
 		$.each(opts.args, function(key, val) {
-			if(typeof val != "string") {
+			if (typeof val != "string" && val !== null) {
 				opts.args[key] = JSON.stringify(val);
 			}
 		});
@@ -107,12 +131,12 @@ $.extend(frappe, {
 
 		if (data._server_messages) {
 			var server_messages = JSON.parse(data._server_messages || '[]');
-			server_messages = $.map(server_messages, function(v) {
+			server_messages.map((msg) => {
 				// temp fix for messages sent as dict
 				try {
-					return JSON.parse(v).message;
+					return JSON.parse(msg);
 				} catch (e) {
-					return v;
+					return msg;
 				}
 			}).join('<br>');
 
@@ -160,32 +184,8 @@ $.extend(frappe, {
 				+text+'</div>').appendTo(document.body);
 	},
 	get_sid: function() {
-		var sid = getCookie("sid");
+		var sid = frappe.get_cookie("sid");
 		return sid && sid !== "Guest";
-	},
-	get_modal: function(title, body_html) {
-		var modal = $('<div class="modal" style="overflow: auto;" tabindex="-1">\
-			<div class="modal-dialog">\
-				<div class="modal-content">\
-					<div class="modal-header">\
-						<a type="button" class="close"\
-							data-dismiss="modal" aria-hidden="true">&times;</a>\
-						<h4 class="modal-title">'+title+'</h4>\
-					</div>\
-					<div class="modal-body ui-front">'+body_html+'\
-					</div>\
-				</div>\
-			</div>\
-			</div>').appendTo(document.body);
-
-		return modal;
-	},
-	msgprint: function(html, title) {
-		if(html.substr(0,1)==="[") html = JSON.parse(html);
-		if($.isArray(html)) {
-			html = html.join("<hr>")
-		}
-		return frappe.get_modal(title || "Message", html).modal("show");
 	},
 	send_message: function(opts, btn) {
 		return frappe.call({
@@ -204,7 +204,9 @@ $.extend(frappe, {
 			args: {doctype: doctype, docname: docname, perm_type: perm_type},
 			callback: function(r) {
 				if(!r.exc && r.message.has_permission) {
-					if(callback) { return callback(r); }
+					if(callback) {
+						return callback(r);
+					}
 				}
 			}
 		});
@@ -232,7 +234,9 @@ $.extend(frappe, {
 			freeze.html(repl('<div class="freeze-message-container"><div class="freeze-message">%(msg)s</div></div>',
 				{msg: msg || ""}));
 
-			setTimeout(function() { freeze.addClass("in") }, 1);
+			setTimeout(function() {
+				freeze.addClass("in");
+			}, 1);
 
 		} else {
 			$("#freeze").addClass("in");
@@ -245,7 +249,9 @@ $.extend(frappe, {
 		if(!frappe.freeze_count) {
 			var freeze = $('#freeze').removeClass("in");
 			setTimeout(function() {
-				if(!frappe.freeze_count) { freeze.remove(); }
+				if(!frappe.freeze_count) {
+					freeze.remove();
+				}
 			}, 150);
 		}
 	},
@@ -257,17 +263,13 @@ $.extend(frappe, {
 	},
 
 	highlight_code_blocks: function() {
-		if(hljs) {
-			$('pre code').each(function(i, block) {
-				hljs.highlightBlock(block);
-			});
-		}
+		hljs.initHighlighting();
 	},
 	bind_filters: function() {
 		// set in select
 		$(".filter").each(function() {
 			var key = $(this).attr("data-key");
-			var val = get_url_arg(key).replace(/\+/g, " ");
+			var val = frappe.utils.get_url_arg(key).replace(/\+/g, " ");
 
 			if(val) $(this).val(val);
 		});
@@ -281,7 +283,7 @@ $.extend(frappe, {
 			});
 
 			window.location.href = location.pathname + "?" + $.param(args);
-		}
+		};
 
 		$(".filter").on("change", function() {
 			search();
@@ -315,45 +317,102 @@ $.extend(frappe, {
 				$(this).addClass("active");
 				return false;
 			}
-		})
+		});
 	},
 	get_navbar_search: function() {
 		return $(".navbar .search, .sidebar .search");
 	},
 	is_user_logged_in: function() {
-		return window.full_name ? true : false;
+		return frappe.get_cookie("sid") && frappe.get_cookie("sid") !== "Guest";
 	},
 	add_switch_to_desk: function() {
 		$('.switch-to-desk').removeClass('hidden');
+	},
+	add_link_to_headings: function() {
+		$('.doc-content .from-markdown').find('h2, h3, h4, h5, h6').each((i, $heading) => {
+			let id = $heading.id;
+			let $a = $('<a class="no-underline">')
+				.prop('href', '#' + id)
+				.attr('aria-hidden', 'true')
+				.html(`
+					<svg xmlns="http://www.w3.org/2000/svg" style="width: 0.8em; height: 0.8em;" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+						stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-link">
+						<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+						<path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+					</svg>
+				`);
+			$($heading).append($a);
+		});
+	},
+	setup_lazy_images: function() {
+		// Use IntersectionObserver to only load images that are visible in the viewport
+		// Fallback for browsers that don't support it
+		// To use this feature, instead of adding an img tag, add
+		// <div class="website-image-lazy" data-class="img-class" data-src="image.jpg" data-alt="image"></div>
+
+		function replace_with_image(target) {
+			const $target = $(target);
+			const attrs = $target.data();
+			const data_string = Object.keys(attrs)
+				.map(key => `${key}="${attrs[key]}"`)
+				.join(' ');
+			$target.replaceWith(`<img ${data_string}>`);
+		}
+
+		if (!window.IntersectionObserver) {
+			$('.website-image-lazy').each((_, el) => {
+				replace_with_image(el);
+			});
+			return;
+		}
+
+		const io = new IntersectionObserver(
+			entries => {
+				entries.forEach(e => {
+					if (e.intersectionRatio > 0) {
+						io.unobserve(e.target);
+						replace_with_image(e.target);
+					}
+				});
+			}, {
+				threshold: [0, 0.2, 0.4, 0.6],
+			});
+
+		$('.website-image-lazy').each((_, el) => {
+			// Start observing an element
+			io.observe(el);
+		});
 	}
 });
 
 
 // Utility functions
 
-function valid_email(id) {
-	return (id.toLowerCase().search("[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?")==-1) ? 0 : 1;
+window.valid_email = function(id) {
+	// eslint-disable-next-line
+	// copied regex from frappe/utils.js validate_type
+	return /^((([a-z]|\d|[!#\$%&'\*\+\-\/=\?\^_`{\|}~]|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])+(\.([a-z]|\d|[!#\$%&'\*\+\-\/=\?\^_`{\|}~]|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])+)*)|((\x22)((((\x20|\x09)*(\x0d\x0a))?(\x20|\x09)+)?(([\x01-\x08\x0b\x0c\x0e-\x1f\x7f]|\x21|[\x23-\x5b]|[\x5d-\x7e]|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])|(\\([\x01-\x09\x0b\x0c\x0d-\x7f]|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF]))))*(((\x20|\x09)*(\x0d\x0a))?(\x20|\x09)+)?(\x22)))@((([a-z]|\d|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])|(([a-z]|\d|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])([a-z]|\d|-|\.|_|~|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])*([a-z]|\d|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])))\.)+(([a-z]|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])|(([a-z]|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])([a-z]|\d|-|\.|_|~|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])*([a-z]|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])))$/.test(id.toLowerCase());
 }
 
-var validate_email = valid_email;
+window.validate_email = valid_email;
 
-function cstr(s) {
+window.cstr = function(s) {
 	return s==null ? '' : s+'';
 }
 
-function is_null(v) {
+window.is_null = function is_null(v) {
 	if(v===null || v===undefined || cstr(v).trim()==="") return true;
-}
+};
 
-function is_html(txt) {
+window.is_html = function is_html(txt) {
 	if(txt.indexOf("<br>")==-1 && txt.indexOf("<p")==-1
 		&& txt.indexOf("<img")==-1 && txt.indexOf("<div")==-1) {
 		return false;
 	}
 	return true;
-}
+};
 
-function ask_to_login() {
+window.ask_to_login = function ask_to_login() {
 	if(!frappe.is_user_logged_in()) {
 		if(localStorage) {
 			localStorage.setItem("last_visited",
@@ -361,12 +420,12 @@ function ask_to_login() {
 		}
 		window.location.href = "login";
 	}
-}
+};
 
 // check if logged in?
 $(document).ready(function() {
-	window.full_name = getCookie("full_name");
-	var logged_in = getCookie("sid") && getCookie("sid") !== "Guest";
+	window.full_name = frappe.get_cookie("full_name");
+	var logged_in = frappe.is_user_logged_in();
 	$("#website-login").toggleClass("hide", logged_in ? true : false);
 	$("#website-post-login").toggleClass("hide", logged_in ? false : true);
 	$(".logged-in").toggleClass("hide", logged_in ? false : true);
@@ -374,11 +433,12 @@ $(document).ready(function() {
 	frappe.bind_navbar_search();
 
 	// switch to app link
-	if(getCookie("system_user")==="yes" && logged_in) {
+	if(frappe.get_cookie("system_user")==="yes" && logged_in) {
 		frappe.add_switch_to_desk();
 	}
 
 	frappe.render_user();
+	frappe.setup_lazy_images();
 
 	$(document).trigger("page-change");
 });
@@ -388,22 +448,41 @@ $(document).on("page-change", function() {
 	$('.dropdown-toggle').dropdown();
 
 	//multilevel dropdown fix
-	$('.dropdown-menu .dropdown-submenu .dropdown-toggle').on('click', function (e) {
+	$('.dropdown-menu .dropdown-submenu .dropdown-toggle').on('click', function(e) {
 		e.stopPropagation();
 		$(this).parent().parent().parent().addClass('open');
-	})
+	});
 
-	$.extend(frappe, getCookies());
+	$.extend(frappe, frappe.get_cookies());
 	frappe.session = {'user': frappe.user_id};
 
 	frappe.datetime.refresh_when();
 	frappe.trigger_ready();
 	frappe.bind_filters();
 	frappe.highlight_code_blocks();
+	frappe.add_link_to_headings();
 	frappe.make_navbar_active();
 	// scroll to hash
 	if (window.location.hash) {
 		var element = document.getElementById(window.location.hash.substring(1));
 		element && element.scrollIntoView(true);
 	}
+
+});
+
+
+frappe.ready(function() {
+	frappe.call({
+		method: 'frappe.website.doctype.website_settings.website_settings.is_chat_enabled',
+		callback: (r) => {
+			if (r.message) {
+				frappe.require(['/assets/js/moment-bundle.min.js', "/assets/css/frappe-chat-web.css", "/assets/frappe/js/lib/socket.io.min.js"], () => {
+					frappe.require('/assets/js/chat.js', () => {
+						frappe.chat.setup();
+					});
+				});
+			}
+		}
+	});
+	frappe.socketio.init(window.socketio_port);
 });

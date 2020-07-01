@@ -140,7 +140,7 @@ frappe.ui.FilterList = Class.extend({
 		}
 		if (i!==undefined) {
 			// remove index
-			this.splice(i, 1);
+			this.filters.splice(i, 1);
 		}
 	},
 
@@ -200,6 +200,12 @@ frappe.ui.FilterList = Class.extend({
 			value = {0:"Draft", 1:"Submitted", 2:"Cancelled"}[value] || value;
 		} else if(field.df.original_type==="Check") {
 			value = {0:"No", 1:"Yes"}[cint(value)];
+		} else if (field.df.original_type === "Duration") {
+			let duration_options = {
+				hide_days: field.df.hide_days,
+				hide_seconds: field.df.hide_seconds
+			};
+			value = frappe.utils.get_formatted_duration(value, duration_options);
 		}
 
 		value = frappe.format(value, field.df, {only_value: 1});
@@ -280,8 +286,7 @@ frappe.ui.Filter = Class.extend({
 
 		this.flist.remove(this);
 		this.flist.push_new_filter(f[0], f[1], f[2], f[3]);
-		this.wrapper.remove();
-		this.flist.update_filters();
+		this.remove();
 	},
 
 	remove: function(dont_run) {
@@ -499,7 +504,7 @@ frappe.ui.Filter = Class.extend({
 		});
 
 		this.$btn_group.find(".toggle-filter").on("click", function() {
-			$(this).closest('.show_filters').find('.filter_area').show()
+			$(this).closest('.show_filters').find('.filter_area').show();
 			me.wrapper.toggle();
 		})
 		this.wrapper.toggle(false);
@@ -659,7 +664,7 @@ frappe.ui.FieldSelect = Class.extend({
 		if(me.doctype && df.parent==me.doctype) {
 			var label = __(df.label);
 			var table = me.doctype;
-			if(df.fieldtype=='Table') me.table_fields.push(df);
+			if(frappe.model.table_fields.includes(df.fieldtype)) me.table_fields.push(df);
 		} else {
 			var label = __(df.label) + ' (' + __(df.parent) + ')';
 			var table = df.parent;

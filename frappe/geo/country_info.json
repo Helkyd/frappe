@@ -43,6 +43,7 @@
   "currency": "EUR",
   "currency_fraction": "Cent",
   "currency_fraction_units": 100,
+  "smallest_currency_fraction_value": 0.01,
   "currency_symbol": "\u20ac",
   "number_format": "#,###.##",
   "timezones": [
@@ -66,6 +67,8 @@
   "currency_fraction": "Cent",
   "currency_fraction_units": 100,
   "currency_symbol": "$",
+  "currency_name": "Eastern Carribean Dollar",
+  "currency": "XCD",
   "number_format": "#,###.##",
   "timezones": [
    "America/Anguilla"
@@ -92,6 +95,8 @@
   "currency_fraction": "Cent",
   "currency_fraction_units": 100,
   "currency_symbol": "$",
+  "currency_name": "Eastern Carribean Dollar",
+  "currency": "XCD",
   "number_format": "#,###.##",
   "timezones": [
    "America/Antigua"
@@ -172,6 +177,7 @@
   "currency": "EUR",
   "currency_fraction": "Cent",
   "currency_fraction_units": 100,
+  "smallest_currency_fraction_value": 0.01,
   "currency_symbol": "\u20ac",
   "number_format": "#,###.##",
   "timezones": [
@@ -248,6 +254,7 @@
   "currency": "EUR",
   "currency_fraction": "Cent",
   "currency_fraction_units": 100,
+  "smallest_currency_fraction_value": 0.01,
   "currency_symbol": "\u20ac",
   "number_format": "#,###.##",
   "timezones": [
@@ -721,6 +728,8 @@
   "currency_fraction": "Cent",
   "currency_fraction_units": 100,
   "currency_symbol": "$",
+  "currency_name": "Eastern Carribean Dollar",
+  "currency": "XCD",
   "number_format": "#,###.##",
   "timezones": [
    "America/Dominica"
@@ -763,11 +772,13 @@
  },
  "El Salvador": {
   "code": "sv",
-  "currency": "SVC",
+  "currency": "USD",
   "currency_fraction": "Centavo",
   "currency_fraction_units": 100,
-  "currency_name": "El Salvador Colon",
-  "currency_symbol": "\u20a1",
+  "smallest_currency_fraction_value": 0.01,
+  "currency_name": "Dolar estadounidense",
+  "currency_symbol": "$",
+  "date_format": "dd-mm-yyyy",
   "number_format": "#,###.##",
   "timezones": [
    "America/El_Salvador"
@@ -799,10 +810,10 @@
  },
  "Estonia": {
   "code": "ee",
-  "currency": "EEK",
+  "currency": "EUR",
   "currency_fraction": "Cent",
   "currency_fraction_units": 100,
-  "currency_name": "Kroon",
+  "currency_name": "Euro",
   "currency_symbol": "\u20ac",
   "number_format": "#,###.##",
   "timezones": [
@@ -811,6 +822,7 @@
  },
  "Ethiopia": {
   "code": "et",
+  "currency": "ETB",
   "currency_fraction": "Santim",
   "currency_fraction_units": 100,
   "currency_name": "Ethiopian Birr",
@@ -853,6 +865,7 @@
   "currency": "EUR",
   "currency_fraction": "Cent",
   "currency_fraction_units": 100,
+  "smallest_currency_fraction_value": 0.01,
   "currency_symbol": "\u20ac",
   "number_format": "#,###.##",
   "timezones": [
@@ -864,6 +877,7 @@
   "currency": "EUR",
   "currency_fraction": "Cent",
   "currency_fraction_units": 100,
+  "smallest_currency_fraction_value": 0.01,
   "currency_symbol": "\u20ac",
   "number_format": "# ###,##",
   "date_format": "dd/mm/yyyy",
@@ -930,6 +944,7 @@
   "currency": "EUR",
   "currency_fraction": "Cent",
   "currency_fraction_units": 100,
+  "smallest_currency_fraction_value": 0.01,
   "currency_symbol": "\u20ac",
   "number_format": "#,###.##",
   "timezones": [
@@ -964,6 +979,7 @@
   "currency": "EUR",
   "currency_fraction": "Cent",
   "currency_fraction_units": 100,
+  "smallest_currency_fraction_value": 0.01,
   "currency_symbol": "\u20ac",
   "number_format": "#,###.##",
   "timezones": [
@@ -985,6 +1001,8 @@
   "currency_fraction": "Cent",
   "currency_fraction_units": 100,
   "currency_symbol": "$",
+  "currency_name": "Eastern Carribean Dollar",
+  "currency": "XCD",
   "number_format": "#,###.##",
   "timezones": [
    "America/Grenada"
@@ -1186,6 +1204,7 @@
   "currency": "EUR",
   "currency_fraction": "Cent",
   "currency_fraction_units": 100,
+  "smallest_currency_fraction_value": 0.01,
   "currency_symbol": "\u20ac",
   "number_format": "#,###.##",
   "timezones": [
@@ -1219,6 +1238,7 @@
   "currency": "EUR",
   "currency_fraction": "Cent",
   "currency_fraction_units": 100,
+  "smallest_currency_fraction_value": 0.01,
   "currency_symbol": "\u20ac",
   "number_format": "#.###,##",
   "date_format": "dd/mm/yyyy",
@@ -1454,6 +1474,7 @@
   "currency": "EUR",
   "currency_fraction": "Cent",
   "currency_fraction_units": 100,
+  "smallest_currency_fraction_value": 0.01,
   "currency_symbol": "\u20ac",
   "number_format": "#,###.##",
   "timezones": [
@@ -1633,6 +1654,7 @@
   "currency": "EUR",
   "currency_fraction": "Cent",
   "currency_fraction_units": 100,
+  "smallest_currency_fraction_value": 0.01,
   "currency_symbol": "\u20ac",
   "number_format": "#,###.##",
   "timezones": [
@@ -1659,6 +1681,7 @@
   "currency": "EUR",
   "currency_fraction": "Cent",
   "currency_fraction_units": 100,
+  "smallest_currency_fraction_value": 0.01,
   "currency_symbol": "\u20ac",
   "number_format": "#,###.##",
   "timezones": [
@@ -1670,6 +1693,8 @@
   "currency_fraction": "Cent",
   "currency_fraction_units": 100,
   "currency_symbol": "$",
+  "currency_name": "Eastern Carribean Dollar",
+  "currency": "XCD",
   "number_format": "#,###.##",
   "timezones": [
    "America/Montserrat"
@@ -1689,9 +1714,10 @@
  },
  "Mozambique": {
   "code": "mz",
+  "currency": "MZN",
   "currency_fraction": "Centavo",
   "currency_fraction_units": 100,
-  "currency_symbol": "MT",
+  "currency_symbol": "MZN",
   "number_format": "#,###.##",
   "timezones": [
    "Africa/Maputo"
@@ -1745,6 +1771,7 @@
   "currency": "EUR",
   "currency_fraction": "Cent",
   "currency_fraction_units": 100,
+  "smallest_currency_fraction_value": 0.01,
   "currency_symbol": "\u20ac",
   "number_format": "#,###.##",
   "timezones": [
@@ -1967,6 +1994,7 @@
   "currency": "EUR",
   "currency_fraction": "Cent",
   "currency_fraction_units": 100,
+  "smallest_currency_fraction_value": 0.01,
   "currency_symbol": "\u20ac",
   "number_format": "#,###.##",
   "timezones": [
@@ -2043,6 +2071,8 @@
   "currency_fraction": "Cent",
   "currency_fraction_units": 100,
   "currency_symbol": "$",
+  "currency_name": "Eastern Carribean Dollar",
+  "currency": "XCD",
   "number_format": "#,###.##",
   "timezones": [
    "America/St_Kitts"
@@ -2053,6 +2083,8 @@
   "currency_fraction": "Cent",
   "currency_fraction_units": 100,
   "currency_symbol": "$",
+  "currency_name": "Eastern Carribean Dollar",
+  "currency": "XCD",
   "number_format": "#,###.##",
   "timezones": [
    "America/St_Lucia"
@@ -2071,6 +2103,8 @@
   "currency_fraction": "Cent",
   "currency_fraction_units": 100,
   "currency_symbol": "$",
+  "currency_name": "Eastern Carribean Dollar",
+  "currency": "XCD",
   "number_format": "#,###.##",
   "timezones": [
    "America/St_Vincent"
@@ -2093,6 +2127,7 @@
   "currency": "EUR",
   "currency_fraction": "Cent",
   "currency_fraction_units": 100,
+  "smallest_currency_fraction_value": 0.01,
   "currency_symbol": "\u20ac",
   "number_format": "#,###.##",
   "timezones": [
@@ -2186,6 +2221,7 @@
   "currency": "EUR",
   "currency_fraction": "Cent",
   "currency_fraction_units": 100,
+  "smallest_currency_fraction_value": 0.01,
   "currency_symbol": "\u20ac",
   "number_format": "#,###.##",
   "timezones": [
@@ -2197,6 +2233,7 @@
   "currency": "EUR",
   "currency_fraction": "Cent",
   "currency_fraction_units": 100,
+  "smallest_currency_fraction_value": 0.01,
   "currency_symbol": "\u20ac",
   "number_format": "#,###.##",
   "timezones": [
@@ -2262,6 +2299,7 @@
   "currency": "EUR",
   "currency_fraction": "Cent",
   "currency_fraction_units": 100,
+  "smallest_currency_fraction_value": 0.01,
   "currency_symbol": "\u20ac",
   "number_format": "#,###.##",
   "timezones": [
@@ -2294,6 +2332,7 @@
  },
  "Suriname": {
   "code": "sr",
+  "currency": "SRD",
   "currency_fraction": "Cent",
   "currency_fraction_units": 100,
   "currency_symbol": "$",
@@ -2538,7 +2577,7 @@
   "currency": "USD",
   "currency_fraction": "Cent",
   "currency_fraction_units": 100,
-  "smallest_currency_fraction_value": 0.05,
+  "smallest_currency_fraction_value": 0.01,
   "currency_name": "US Dollar",
   "currency_symbol": "$",
   "date_format": "mm-dd-yyyy",
@@ -2655,8 +2694,11 @@
  },
  "Yemen": {
   "code": "ye",
+  "currency": "YER",
   "currency_fraction": "Fils",
   "currency_fraction_units": 100,
+  "smallest_currency_fraction_value": 0.01,
+  "currency_name": "Yemeni Rial",
   "currency_symbol": "\ufdfc",
   "number_format": "#,###.##",
   "timezones": [
